@@ -1,0 +1,17 @@
+{
+  "title": "Perklyn",
+  "description": "Perklyn connects customers and businesses through a seamless loyalty rewards platform.",
+  "icons": {
+    "icon": "/perklyn-logo.svg"
+  },
+  "openGraph": {
+    "image": "/perklyn-logo.svg"
+  },
+  "robots": {
+    "index": false
+  },
+  "accessibility": {
+    "addBypassLinks": false,
+    "ignoreReducedMotion": false
+  }
+}

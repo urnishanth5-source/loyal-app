@@ -321,7 +321,7 @@ function Brand({ light = false }: { light?: boolean }) {
   return (
     <div className="flex items-center gap-3">
       <div className={`logo-mark ${light ? "bg-white/10" : "bg-[#092f26]"}`}>
-        <img src="/perklyn-logo.png" alt="" />
+        <img src="/perklyn-logo.svg" alt="" />
       </div>
       <div className={`text-[1.3rem] font-extrabold tracking-[-0.04em] ${light ? "text-white" : "text-[#123b30]"}`}>
         Perk<span className="text-[#d4b95e]">lyn</span>
@@ -985,7 +985,7 @@ function CustomerDashboard({ onLogout, businesses, setBusinesses, directory, cla
       <main className="dashboard-main">
         <section className="wallet-hero">
           <div className="relative z-10 max-w-[35rem]"><div className="eyebrow text-[#eadb9d]">Your reward wallet</div><div className="mt-4 text-[clamp(2.3rem,4vw,3.8rem)] font-extrabold leading-none tracking-[-0.055em]">Welcome, {safeProfile.name.split(" ")[0]}.</div><p className="mt-5 text-[#c8d8d2]">{safeProfile.isNew ? "Your new wallet is ready for its first business connection." : "Your favorite places are all connected to this number."}</p><div className="mt-6 flex items-center gap-3 text-sm font-bold"><span className="rounded-full bg-white/10 px-4 py-2">{safeProfile.phone}</span><span className="rounded-full bg-[#d9bd61] px-4 py-2 text-[#133b30]">{total.toLocaleString()} points</span></div></div>
-          <img src="/perklyn-logo.png" alt="" className="wallet-hero-logo" />
+          <img src="/perklyn-logo.svg" alt="" className="wallet-hero-logo" />
         </section>
         <div className="mt-12 flex flex-col items-start justify-between gap-4 sm:flex-row sm:items-end"><div><div className="page-kicker">Connected businesses</div><div className="page-title">Your loyalty cards</div></div><div className="flex items-center gap-3"><span className="hidden text-sm text-[#74837d] sm:block">{businesses.length} active memberships</span><Button onClick={() => { setScanNotice(""); setShowScanner(true); }}><Icon name="grid" size={18} />Scan business QR</Button></div></div>
         {scanNotice && <div className="scan-notice"><Icon name="check" size={17} />{scanNotice}</div>}
@@ -1130,7 +1130,7 @@ export default function App() {
         points: 0,
         color: "from-[#0d4e3a] to-[#073127]",
         accent: "#e8c765",
-        logo: "/perklyn-logo.png",
+        logo: "/perklyn-logo.svg",
         reward: "Create your first reward",
         rewards: [],
         progress: 0,
