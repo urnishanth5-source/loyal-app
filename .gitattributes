@@ -20,6 +20,7 @@
 # Public website images are small deployable assets and must be stored directly
 # so hosts such as Vercel receive the image bytes instead of Git LFS pointers.
 public/*.png          -filter -diff -merge -text
+public/**/*.png       -filter -diff -merge -text
 
 # ---------------------------------------------------------------------------
 # Video
