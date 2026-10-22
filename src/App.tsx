@@ -11,6 +11,16 @@ import {
   subscribeCurrentDevice,
   unsubscribeCurrentDevice,
 } from "./notifications";
+import {
+  captureNfcToken,
+  claimNfcPoints,
+  clearNfcToken,
+  getNfcToken,
+  NfcClaimPreview,
+  previewNfcClaim,
+  supportsNfcWriting,
+  writeNfcUrl,
+} from "./nfc";
 
 type Portal = "signin" | "business" | "customer";
 type Role = "customer" | "business";
@@ -28,6 +38,7 @@ type Customer = {
   points: number;
   reward: string;
   joined: string;
+  nfcPoints?: number;
 };
 
 type Business = {
@@ -62,11 +73,12 @@ type Claim = {
 };
 
 type Activity = {
-  id: number;
+  id: number | string;
   businessId: number;
   customerName: string;
   phone: string;
-  type: "issued" | "claimed" | "adjusted";
+  type: "issued" | "claimed" | "adjusted" | "nfc_issued";
+  source?: "manual" | "nfc";
   points: number;
   description: string;
   occurredAt: string;
@@ -318,6 +330,7 @@ function Icon({ name, size = 20 }: { name: string; size?: number }) {
     grid: <><rect x="3" y="3" width="7" height="7" rx="1" /><rect x="14" y="3" width="7" height="7" rx="1" /><rect x="3" y="14" width="7" height="7" rx="1" /><rect x="14" y="14" width="7" height="7" rx="1" /></>,
     logout: <><path d="M10 17l5-5-5-5M15 12H3" /><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4" /></>,
     minus: <path d="M5 12h14" />,
+    nfc: <><path d="M7 7a7 7 0 0 1 0 10M11 4a11 11 0 0 1 0 16M3 10a3 3 0 0 1 0 4" /><path d="M16 8v8" /></>,
     phone: <><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.8 19.8 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.12 4.18 2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.12.9.33 1.78.62 2.63a2 2 0 0 1-.45 2.11L8 9.73a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.85.3 1.73.5 2.63.62A2 2 0 0 1 22 16.92Z" /></>,
     plus: <><path d="M12 5v14M5 12h14" /></>,
     search: <><circle cx="11" cy="11" r="8" /><path d="m21 21-4.35-4.35" /></>,
@@ -334,8 +347,8 @@ function Brand({ light = false }: { light?: boolean }) {
       <div className={`logo-mark ${light ? "bg-white/10" : "bg-[#092f26]"}`}>
         <img src="/perklyn-logo.svg" alt="" />
       </div>
-      <div className={`text-[1.3rem] font-extrabold tracking-[-0.04em] ${light ? "text-white" : "text-[#123b30]"}`}>
-        Perk<span className="text-[#d4b95e]">lyn</span>
+      <div className="text-[1.3rem] font-extrabold tracking-[-0.04em] text-[#d4b95e]">
+        Perklyn
       </div>
     </div>
   );
@@ -455,7 +468,7 @@ function SignIn({ onEnter }: { onEnter: (role: Role, isNew: boolean, details: { 
       <section className="signin-form-panel">
         <div className="w-full max-w-[31rem]">
           <div className="mb-10 lg:hidden"><Brand /></div>
-          <div className="text-3xl font-extrabold tracking-[-0.04em] text-[#123b30]">{showRecovery ? "Reset your password" : showSignup ? "Create your account" : "Welcome back"}</div>
+          <div className={`text-3xl font-extrabold tracking-[-0.04em] ${showRecovery || showSignup ? "text-[#123b30]" : "text-white"}`}>{showRecovery ? "Reset your password" : showSignup ? "Create your account" : "Welcome back"}</div>
           <p className="mt-3 text-[#687a74]">{showRecovery ? "We’ll email you a secure link to choose a new password." : showSignup ? "Join Perklyn and start earning more." : "Sign in to continue to Perklyn."}</p>
 
           {!showRecovery && <div className="role-switch mt-8">
@@ -692,6 +705,228 @@ function QrScannerModal({ onClose, onScan }: { onClose: () => void; onScan: (val
   </section></div>;
 }
 
+type NfcIssue = {
+  id: string;
+  amount: number;
+  reason?: string;
+  status: "pending" | "claimed" | "expired" | "cancelled";
+  expiresAt: string;
+  claimedAt?: string;
+  claimedCustomerName?: string;
+  claimedCustomerPhone?: string;
+};
+
+function countdownLabel(expiresAt?: string, serverNow?: string) {
+  if (!expiresAt) return "";
+  const offset = serverNow ? new Date(serverNow).getTime() - Date.now() : 0;
+  const remaining = Math.max(0, new Date(expiresAt).getTime() - (Date.now() + offset));
+  const seconds = Math.ceil(remaining / 1000);
+  return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
+}
+
+function NfcManager({ businessId, onClose, onClaimed }: { businessId: number; onClose: () => void; onClaimed: () => void }) {
+  const [card, setCard] = useState<{ id: string; status: string; activatedAt: string } | null>(null);
+  const [provision, setProvision] = useState<{ id: string; writeUrl: string; expiresAt: string; replacing: boolean } | null>(null);
+  const [issue, setIssue] = useState<NfcIssue | null>(null);
+  const [serverNow, setServerNow] = useState("");
+  const [amount, setAmount] = useState("");
+  const [reason, setReason] = useState("");
+  const [qrImage, setQrImage] = useState("");
+  const [message, setMessage] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [, setClock] = useState(0);
+
+  const loadCard = async () => {
+    const result = await apiRequest<{ card: typeof card; provision: typeof provision }>(`/nfc/card?businessId=${businessId}`);
+    setCard(result.card);
+    setProvision(result.provision);
+  };
+  const loadIssue = async () => {
+    const result = await apiRequest<{ issue: NfcIssue | null; serverNow: string }>(`/nfc/issues/current?businessId=${businessId}`);
+    setIssue(result.issue);
+    setServerNow(result.serverNow);
+    if (result.issue?.status === "claimed") onClaimed();
+  };
+  useEffect(() => {
+    Promise.all([loadCard(), loadIssue()]).catch((error) => setMessage(error instanceof Error ? error.message : "Unable to load NFC card."));
+  }, [businessId]);
+  useEffect(() => {
+    if (!card) return;
+    const timer = window.setInterval(() => {
+      setClock((value) => value + 1);
+      if (issue?.status === "pending") loadIssue().catch(() => undefined);
+    }, 2000);
+    return () => window.clearInterval(timer);
+  }, [card, issue?.status]);
+  useEffect(() => {
+    if (!provision) {
+      setQrImage("");
+      return;
+    }
+    QRCode.toDataURL(provision.writeUrl, { width: 520, margin: 2, errorCorrectionLevel: "M" }).then(setQrImage);
+  }, [provision?.writeUrl]);
+
+  const provisionCard = async (replaceExisting = false) => {
+    if (replaceExisting && !window.confirm("Replace this NFC card? The old card will stop working as soon as the new card is activated.")) return;
+    setBusy(true);
+    setMessage("");
+    try {
+      const result = await apiRequest<{ provision: NonNullable<typeof provision> }>("/nfc/card/provision", {
+        method: "POST",
+        body: JSON.stringify({ businessId, replaceExisting }),
+      });
+      setProvision(result.provision);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Unable to start card setup.");
+    } finally {
+      setBusy(false);
+    }
+  };
+  const writeCard = async () => {
+    if (!provision) return;
+    setBusy(true);
+    setMessage("Hold the NFC card near your phone.");
+    try {
+      await writeNfcUrl(provision.writeUrl);
+      setMessage("Card written. Activate it to finish setup.");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Unable to write this NFC card.");
+    } finally {
+      setBusy(false);
+    }
+  };
+  const activateCard = async () => {
+    if (!provision) return;
+    setBusy(true);
+    try {
+      const result = await apiRequest<{ card: NonNullable<typeof card> }>("/nfc/card/activate", {
+        method: "POST",
+        body: JSON.stringify({ businessId, provisionId: provision.id }),
+      });
+      setCard(result.card);
+      setProvision(null);
+      setMessage("Your reusable Perklyn NFC card is connected.");
+      await loadIssue();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Unable to activate this card.");
+    } finally {
+      setBusy(false);
+    }
+  };
+  const createIssue = async (event: FormEvent) => {
+    event.preventDefault();
+    setBusy(true);
+    setMessage("");
+    try {
+      const result = await apiRequest<{ issue: NfcIssue; serverNow: string }>("/nfc/issues", {
+        method: "POST",
+        body: JSON.stringify({ businessId, amount: Number(amount), reason }),
+      });
+      setIssue(result.issue);
+      setServerNow(result.serverNow);
+      setAmount("");
+      setReason("");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Unable to issue NFC points.");
+      await loadIssue().catch(() => undefined);
+    } finally {
+      setBusy(false);
+    }
+  };
+  const cancelIssue = async () => {
+    if (!issue) return;
+    setBusy(true);
+    try {
+      const result = await apiRequest<{ issue: NfcIssue; serverNow: string }>(`/nfc/issues/${issue.id}/cancel`, { method: "POST" });
+      setIssue(result.issue);
+      setServerNow(result.serverNow);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Unable to cancel this issue.");
+    } finally {
+      setBusy(false);
+    }
+  };
+  const resetIssue = () => {
+    setIssue(null);
+    setMessage("");
+  };
+  const countdown = countdownLabel(issue?.expiresAt, serverNow);
+
+  return <div className="modal-backdrop card-editor-backdrop" onMouseDown={onClose}><section className="nfc-manager" onMouseDown={(event) => event.stopPropagation()}>
+    <div className="flex items-start justify-between"><div><div className="page-kicker">Contactless loyalty</div><div className="mt-2 text-2xl font-extrabold tracking-[-.04em] text-[#123b30]">Issue points by NFC</div><p className="mt-2 text-sm text-[#73827d]">Connect one reusable card, then make points available for one customer for five minutes.</p></div><button className="icon-button" onClick={onClose} aria-label="Close">×</button></div>
+    {!card && !provision && <div className="nfc-empty"><i><Icon name="nfc" size={28} /></i><div><b>No NFC card connected</b><p>A permanent, secure Perklyn link is written once. Point amounts stay safely on the server.</p></div><Button disabled={busy} onClick={() => provisionCard(false)}>Set up NFC card</Button></div>}
+    {provision && <div className="nfc-provision">
+      <div className="nfc-step"><span>1</span><div><b>Write the secure link</b><p>{supportsNfcWriting() ? "Use this Android device to write a blank NDEF card." : "Web NFC writing is unavailable here. Use NFC Tools on a compatible phone."}</p></div></div>
+      {supportsNfcWriting() && <Button disabled={busy} onClick={writeCard}><Icon name="nfc" size={18} />{busy ? "Waiting for card…" : "Write Perklyn card"}</Button>}
+      <div className="nfc-manual"><div className="nfc-qr">{qrImage ? <img src={qrImage} alt="Secure NFC setup URL QR code" /> : <span>Generating QR…</span>}</div><div><b>Manual setup</b><p>In NFC Tools, create a URL/URI record and paste this secure link. Do not share it publicly.</p><code>{provision.writeUrl}</code><Button variant="secondary" onClick={() => navigator.clipboard.writeText(provision.writeUrl).then(() => setMessage("Secure URL copied."))}>Copy secure URL</Button></div></div>
+      <div className="nfc-step"><span>2</span><div><b>Activate after writing</b><p>Activation connects this exact card to your business. Setup expires in 30 minutes.</p></div></div>
+      <Button disabled={busy} onClick={activateCard}><Icon name="check" size={18} />I wrote the card — activate</Button>
+    </div>}
+    {card && !provision && <div className="nfc-active-card">
+      <div className="nfc-connected"><i><Icon name="check" size={18} /></i><div><b>NFC card connected</b><span>Ready for reusable, one-time point issues</span></div><button onClick={() => provisionCard(true)}>Replace card</button></div>
+      {!issue && <form onSubmit={createIssue} className="nfc-issue-form">
+        <label className="field-label">Points<input required min="1" max="10000" step="1" inputMode="numeric" type="number" className="field" value={amount} onChange={(event) => setAmount(event.target.value)} placeholder="1–10,000" /></label>
+        <label className="field-label">Internal reason <span>{reason.length}/100</span><input maxLength={100} className="field" value={reason} onChange={(event) => setReason(event.target.value)} placeholder="Optional, visible only to your business" /></label>
+        <Button disabled={busy} type="submit"><Icon name="nfc" size={18} />Issue points for 5 minutes</Button>
+      </form>}
+      {issue?.status === "pending" && <div className="nfc-live-issue"><div className="nfc-status"><span>Live now</span><strong>{countdown}</strong></div><div className="nfc-amount">{issue.amount.toLocaleString()}<span>points</span></div>{issue.reason && <p>{issue.reason}</p>}<small>Waiting for one customer to tap and confirm.</small><Button disabled={busy} variant="secondary" onClick={cancelIssue}>Cancel issue</Button></div>}
+      {issue?.status === "claimed" && <div className="nfc-result success"><i><Icon name="check" size={22} /></i><div><span>Points claimed</span><strong>{issue.amount.toLocaleString()} points</strong><p>{issue.claimedCustomerName} · {issue.claimedCustomerPhone}</p><small>{issue.claimedAt ? new Intl.DateTimeFormat("en", { dateStyle: "medium", timeStyle: "short" }).format(new Date(issue.claimedAt)) : ""}</small></div><Button onClick={resetIssue}>Issue more points</Button></div>}
+      {(issue?.status === "expired" || issue?.status === "cancelled") && <div className="nfc-result"><i><Icon name="nfc" size={22} /></i><div><span>Issue {issue.status}</span><strong>{issue.amount.toLocaleString()} points were not added</strong><p>Create a new five-minute issue when the customer is ready.</p></div><Button onClick={resetIssue}>Issue more points</Button></div>}
+    </div>}
+    {message && <div className="nfc-message" role="status">{message}</div>}
+  </section></div>;
+}
+
+function NfcClaimDialog({ portal, onContinue, onClaimed, onSwitchAccount }: { portal: Portal; onContinue: () => void; onClaimed: (result: Awaited<ReturnType<typeof claimNfcPoints>>) => void; onSwitchAccount: () => void }) {
+  const [preview, setPreview] = useState<NfcClaimPreview | null>(null);
+  const [message, setMessage] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [, setClock] = useState(0);
+  const token = getNfcToken();
+  useEffect(() => {
+    if (!token) return;
+    previewNfcClaim(token).then(setPreview).catch((error) => setMessage(error instanceof Error ? error.message : "Unable to read this NFC card."));
+    const timer = window.setInterval(() => setClock((value) => value + 1), 1000);
+    return () => window.clearInterval(timer);
+  }, [token, portal]);
+  if (!token) return null;
+  const countdown = countdownLabel(preview?.expiresAt, preview?.serverNow);
+  const claim = async () => {
+    setBusy(true);
+    setMessage("");
+    try {
+      const result = await claimNfcPoints(token);
+      clearNfcToken();
+      onClaimed(result);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Unable to claim these points.");
+      previewNfcClaim(token).then(setPreview).catch(() => undefined);
+    } finally {
+      setBusy(false);
+    }
+  };
+  const statusCopy: Record<string, string> = {
+    no_active_issue: "No points are ready on this card.",
+    expired: "This point issue has expired.",
+    claimed: "These points have already been claimed.",
+    cancelled: "This point issue was cancelled.",
+    invalid_card: "This NFC card is no longer active.",
+  };
+  return <div className="modal-backdrop nfc-claim-backdrop"><section className="nfc-claim-dialog">
+    <div className="nfc-claim-mark"><Icon name="nfc" size={28} /></div>
+    <div className="page-kicker">NFC point claim</div>
+    {!preview && !message && <><div className="nfc-claim-title">Reading Perklyn card…</div><p>Checking for a secure point issue.</p></>}
+    {preview?.status === "ready" && <><div className="nfc-claim-title">{preview.amount?.toLocaleString()} points</div><p>from <b>{preview.businessName}</b></p><div className="nfc-claim-countdown"><span>Available for</span><strong>{countdown}</strong></div>
+      {portal === "signin" && <Button className="w-full justify-center" onClick={onContinue}>Sign in to claim</Button>}
+      {portal === "customer" && <Button disabled={busy || countdown === "0:00"} className="w-full justify-center" onClick={claim}>{busy ? "Claiming…" : "Claim points"}<Icon name="arrow" size={18} /></Button>}
+      {portal === "business" && <><div className="nfc-claim-warning">A customer account is required to claim these points.</div><Button variant="secondary" className="w-full justify-center" onClick={onSwitchAccount}>Sign out and switch account</Button></>}
+    </>}
+    {preview && preview.status !== "ready" && <><div className="nfc-claim-title">Points unavailable</div><p>{statusCopy[preview.status]}</p><Button variant="secondary" className="w-full justify-center" onClick={() => { clearNfcToken(); onContinue(); }}>Close</Button></>}
+    {message && <div className="nfc-message" role="alert">{message}</div>}
+    <small className="nfc-claim-security">Points are added only after server verification and can be claimed once.</small>
+  </section></div>;
+}
+
 function BusinessDashboard({ onLogout, onNotifications, unreadCount, businesses, setBusinesses, customers, setCustomers, activities, setActivities, profile, onCustomerAdded, onCustomerChanged }: { onLogout: () => void; onNotifications: () => void; unreadCount: number; businesses: Business[]; setBusinesses: React.Dispatch<React.SetStateAction<Business[]>>; customers: Customer[]; setCustomers: React.Dispatch<React.SetStateAction<Customer[]>>; activities: Activity[]; setActivities: React.Dispatch<React.SetStateAction<Activity[]>>; profile?: Profile; onCustomerAdded: (customer: Customer, businessId: number) => void; onCustomerChanged: (customer: Customer, businessId: number) => void }) {
   const safeProfile: Profile = profile && typeof profile.name === "string"
     ? profile
@@ -706,6 +941,7 @@ function BusinessDashboard({ onLogout, onNotifications, unreadCount, businesses,
   const [showSettings, setShowSettings] = useState(false);
   const [showVerify, setShowVerify] = useState(false);
   const [showBroadcast, setShowBroadcast] = useState(false);
+  const [showNfc, setShowNfc] = useState(false);
   const [broadcastTitle, setBroadcastTitle] = useState("");
   const [broadcastBody, setBroadcastBody] = useState("");
   const [broadcastAudience, setBroadcastAudience] = useState(0);
@@ -902,6 +1138,15 @@ function BusinessDashboard({ onLogout, onNotifications, unreadCount, businesses,
       setBroadcastBusy(false);
     }
   };
+  const syncNfcReporting = async () => {
+    try {
+      const result = await apiRequest<{ state: { customers?: Customer[]; activities?: Activity[] } | null }>("/me");
+      if (result.state?.customers) setCustomers(result.state.customers);
+      if (result.state?.activities) setActivities(result.state.activities);
+    } catch {
+      // The NFC panel continues polling and will retry reconciliation.
+    }
+  };
 
   return (
     <div className="min-h-screen bg-[#f5f8f6]">
@@ -909,7 +1154,7 @@ function BusinessDashboard({ onLogout, onNotifications, unreadCount, businesses,
       <main className="dashboard-main">
         <div className="flex flex-col justify-between gap-5 md:flex-row md:items-end">
           <div><div className="page-kicker">Business overview</div><div className="page-title">Good morning, {safeProfile.name.split(" ")[0]}.</div><p className="mt-2 text-[#6e7d77]">{safeProfile.isNew ? "Your new loyalty account is ready to set up." : "Here’s what’s happening with your loyalty community."}</p></div>
-          <div className="flex flex-wrap gap-2"><Button variant="secondary" onClick={() => setShowQr(true)}><Icon name="grid" size={18} />View QR code</Button><Button variant="secondary" onClick={() => setShowHistory(true)}><Icon name="grid" size={18} />History</Button><Button variant="secondary" onClick={() => setShowRewards(true)}><Icon name="gift" size={18} />Manage rewards</Button><Button variant="secondary" onClick={openCardEditor}><Icon name="card" size={18} />Edit loyalty card</Button><Button variant="secondary" onClick={openBroadcast}><Icon name="bell" size={18} />Send notification</Button><Button onClick={() => setShowAdd(true)}><Icon name="plus" size={18} />Add customer</Button></div>
+          <div className="flex flex-wrap gap-2"><Button onClick={() => setShowNfc(true)}><Icon name="nfc" size={18} />Issue points by NFC</Button><Button variant="secondary" onClick={() => setShowQr(true)}><Icon name="grid" size={18} />View QR code</Button><Button variant="secondary" onClick={() => setShowHistory(true)}><Icon name="grid" size={18} />History</Button><Button variant="secondary" onClick={() => setShowRewards(true)}><Icon name="gift" size={18} />Manage rewards</Button><Button variant="secondary" onClick={openCardEditor}><Icon name="card" size={18} />Edit loyalty card</Button><Button variant="secondary" onClick={openBroadcast}><Icon name="bell" size={18} />Send notification</Button><Button onClick={() => setShowAdd(true)}><Icon name="plus" size={18} />Add customer</Button></div>
         </div>
 
         <section className="stats-grid">
@@ -923,8 +1168,8 @@ function BusinessDashboard({ onLogout, onNotifications, unreadCount, businesses,
             <div><div className="text-lg font-extrabold text-[#153d32]">Your customers</div><div className="mt-1 text-sm text-[#7a8984]">Manage points and rewards for each member.</div></div>
             <label className="search-box"><Icon name="search" size={18} /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search name or phone" /></label>
           </div>
-          <div className="hidden grid-cols-[1.4fr_1fr_.7fr_1.2fr_.3fr] gap-4 border-y border-[#e7edea] bg-[#f9fbfa] px-6 py-3 text-[.69rem] font-extrabold uppercase tracking-[.1em] text-[#82908b] md:grid">
-            <span>Customer</span><span>Phone</span><span>Points</span><span>Current reward</span><span></span>
+          <div className="hidden grid-cols-[1.35fr_1fr_.65fr_.8fr_1.1fr_.2fr] gap-4 border-y border-[#e7edea] bg-[#f9fbfa] px-6 py-3 text-[.69rem] font-extrabold uppercase tracking-[.1em] text-[#82908b] md:grid">
+            <span>Customer</span><span>Phone</span><span>Points</span><span>Issued by NFC</span><span>Current reward</span><span></span>
           </div>
           <div>
             {filtered.map((customer) => (
@@ -932,6 +1177,7 @@ function BusinessDashboard({ onLogout, onNotifications, unreadCount, businesses,
                 <span className="flex items-center gap-3"><i className="avatar">{customer.name.split(" ").map((part) => part[0]).join("")}</i><span><b>{customer.name}</b><small>Joined {customer.joined}</small></span></span>
                 <span className="muted-cell"><Icon name="phone" size={14} />{customer.phone}</span>
                 <span className="point-pill">{customer.points.toLocaleString()} pts</span>
+                <span className="nfc-points-cell">{customer.nfcPoints ? `${customer.nfcPoints.toLocaleString()} pts` : "—"}</span>
                 <span className="reward-cell">{customer.reward}</span>
                 <Icon name="chevron" size={17} />
               </button>
@@ -946,7 +1192,7 @@ function BusinessDashboard({ onLogout, onNotifications, unreadCount, businesses,
         <div className="points-balance"><span>Current balance</span><strong>{selected.points.toLocaleString()}</strong><small>loyalty points</small></div>
         <div className="mt-8"><label className="field-label">Adjust points</label><div className="mt-2 grid grid-cols-3 gap-2"><Button disabled={pointUpdating} variant="secondary" onClick={() => updatePoints(-50)}><Icon name="minus" size={15} />50</Button><Button disabled={pointUpdating} variant="secondary" onClick={() => updatePoints(50)}><Icon name="plus" size={15} />50</Button><Button disabled={pointUpdating} onClick={() => updatePoints(100)}><Icon name="plus" size={15} />100</Button></div><div className="custom-points"><input disabled={pointUpdating} type="number" min="1" inputMode="numeric" value={customPoints} onChange={(event) => setCustomPoints(event.target.value)} placeholder="Enter any number of points" /><Button disabled={pointUpdating} onClick={addCustomPoints}><Icon name="plus" size={16} />{pointUpdating ? "Saving…" : "Add points"}</Button></div>{pointError && <span className="field-error-message" role="alert">{pointError}</span>}</div>
         <label className="field-label mt-7">Issued reward<select className="field" aria-label="Reward and reason for issuing" value={selected.reward} onChange={(event) => updateReward(event.target.value)}><option value="Free signature drink">Free signature drink — Loyalty milestone reached</option><option value="10% off next visit">10% off next visit — Thank you for returning</option><option value="Free pastry">Free pastry — Points achievement reward</option><option value="VIP tasting menu">VIP tasting menu — VIP customer recognition</option><option value="Welcome reward">Welcome reward — New customer appreciation</option></select></label>
-        <div className="customer-activity"><div className="flex items-center justify-between"><b>Customer activity</b><span>{selectedActivities.length} records</span></div>{selectedActivities.length === 0 ? <p>No activity recorded for this customer yet.</p> : selectedActivities.slice(0, 12).map((item) => <div className="customer-activity-row" key={item.id}><i className={item.type}><Icon name={item.type === "claimed" ? "gift" : item.type === "issued" ? "plus" : "minus"} size={14} /></i><div><b>{item.description}</b><small><em className={`activity-kind ${item.type}`}>{item.type === "issued" ? "Points issued" : item.type === "claimed" ? "Points claimed" : "Adjustment"}</em>{item.occurredAt}</small></div><span className={item.type}>{item.type === "issued" ? "+" : "−"}{item.points} pts</span></div>)}</div>
+        <div className="customer-activity"><div className="flex items-center justify-between"><b>Customer activity</b><span>{selectedActivities.length} records</span></div>{selectedActivities.length === 0 ? <p>No activity recorded for this customer yet.</p> : selectedActivities.slice(0, 12).map((item) => <div className="customer-activity-row" key={item.id}><i className={item.type}><Icon name={item.type === "claimed" ? "gift" : item.type === "nfc_issued" ? "nfc" : item.type === "issued" ? "plus" : "minus"} size={14} /></i><div><b>{item.description}</b><small><em className={`activity-kind ${item.type}`}>{item.type === "nfc_issued" ? "Issued by NFC" : item.type === "issued" ? "Points issued" : item.type === "claimed" ? "Points claimed" : "Adjustment"}</em>{item.occurredAt}</small></div><span className={item.type}>{item.type === "issued" || item.type === "nfc_issued" ? "+" : "−"}{item.points} pts</span></div>)}</div>
         <div className="mt-auto rounded-2xl bg-[#f2f7f4] p-4 text-sm leading-6 text-[#667871]"><b className="text-[#1b4d3e]">Merchant-safe balance</b><br />These points are stored only under {merchant.name} and never mixed with another business.</div>
       </section></div>}
 
@@ -962,7 +1208,7 @@ function BusinessDashboard({ onLogout, onNotifications, unreadCount, businesses,
         <div className={`card-editor-preview bg-gradient-to-br ${cardColor}`}>
           <div className="card-glow" />
           <div className="relative z-10 flex h-full flex-col justify-between">
-            <div className="flex items-start justify-between"><div className="editor-logo"><img src={cardLogo} alt="Business logo preview" /></div><span className="text-xs font-extrabold tracking-[.15em] text-white/55">PERKLYN</span></div>
+            <div className="flex items-start justify-between"><div className="editor-logo"><img src={cardLogo} alt="Business logo preview" /></div><span className="text-xs font-extrabold tracking-[-.02em] text-[#d4b95e]">Perklyn</span></div>
             <div><div className="text-xs text-white/55">Your loyalty card</div><div className="mt-1 text-2xl font-extrabold text-white">{cardName || "Your business name"}</div></div>
           </div>
         </div>
@@ -991,9 +1237,9 @@ function BusinessDashboard({ onLogout, onNotifications, unreadCount, businesses,
 
       {showHistory && <div className="modal-backdrop card-editor-backdrop" onMouseDown={() => setShowHistory(false)}><section className="history-panel" onMouseDown={(event) => event.stopPropagation()}>
         <div className="flex items-start justify-between"><div><div className="page-kicker">Points ledger</div><div className="mt-2 text-2xl font-extrabold tracking-[-.04em] text-[#123b30]">Customer activity history</div><p className="mt-2 text-sm text-[#73827d]">Track who received points and who claimed rewards.</p></div><button className="icon-button" onClick={() => setShowHistory(false)}>×</button></div>
-        <div className="history-summary"><div><span>Points issued</span><strong>{activities.filter((item) => item.businessId === merchant.id && item.type === "issued").reduce((sum, item) => sum + item.points, 0)}</strong></div><div><span>Points claimed</span><strong>{activities.filter((item) => item.businessId === merchant.id && item.type === "claimed").reduce((sum, item) => sum + item.points, 0)}</strong></div><div><span>Total activities</span><strong>{activities.filter((item) => item.businessId === merchant.id).length}</strong></div></div>
+        <div className="history-summary"><div><span>Points issued</span><strong>{activities.filter((item) => item.businessId === merchant.id && (item.type === "issued" || item.type === "nfc_issued")).reduce((sum, item) => sum + item.points, 0)}</strong></div><div><span>Points claimed</span><strong>{activities.filter((item) => item.businessId === merchant.id && item.type === "claimed").reduce((sum, item) => sum + item.points, 0)}</strong></div><div><span>Total activities</span><strong>{activities.filter((item) => item.businessId === merchant.id).length}</strong></div></div>
         <div className="business-history-list">
-          {activities.filter((item) => item.businessId === merchant.id).map((item) => <div className="business-history-row" key={item.id}><i className={item.type}><Icon name={item.type === "claimed" ? "gift" : item.type === "issued" ? "plus" : "minus"} size={17} /></i><div><b>{item.customerName}</b><small>{item.phone}</small></div><div className="history-description"><b>{item.description}</b><small>{item.occurredAt}</small></div><span className={item.type}>{item.type === "issued" ? "+" : "−"}{item.points} pts</span></div>)}
+          {activities.filter((item) => item.businessId === merchant.id).map((item) => <div className="business-history-row" key={item.id}><i className={item.type}><Icon name={item.type === "claimed" ? "gift" : item.type === "nfc_issued" ? "nfc" : item.type === "issued" ? "plus" : "minus"} size={17} /></i><div><b>{item.customerName}</b><small>{item.phone}</small></div><div className="history-description"><b>{item.description}</b><small>{item.occurredAt}</small></div><span className={item.type}>{item.type === "issued" || item.type === "nfc_issued" ? "+" : "−"}{item.points} pts</span></div>)}
         </div>
       </section></div>}
       {showQr && <div className="modal-backdrop card-editor-backdrop" onMouseDown={() => setShowQr(false)}><section className="business-qr-dialog" onMouseDown={(event) => event.stopPropagation()}>
@@ -1017,12 +1263,13 @@ function BusinessDashboard({ onLogout, onNotifications, unreadCount, businesses,
           </div>
           <div>
             <div className="text-xs font-extrabold uppercase tracking-[.12em] text-[#83908c]">Notification preview</div>
-            <div className="push-preview"><img src="/icons/perklyn-192.png" alt="" /><div><small>Perklyn · now</small><b>{broadcastTitle || "Your notification title"}</b><span>{broadcastBody || "Your message will appear here."}</span></div></div>
+            <div className="push-preview"><img src="/icons/perklyn-192.png" alt="" /><div><small><span className="font-extrabold text-[#d4b95e]">Perklyn</span> · now</small><b>{broadcastTitle || "Your notification title"}</b><span>{broadcastBody || "Your message will appear here."}</span></div></div>
             <div className="recent-campaigns"><b>Recent sends</b>{broadcastCampaigns.length === 0 ? <span>No campaigns sent yet.</span> : broadcastCampaigns.slice(0, 3).map((campaign) => <div key={campaign.id}><span><b>{campaign.title}</b><small>{campaign.eligibleRecipients} members · {campaign.status}</small></span><em>{new Intl.DateTimeFormat("en", { dateStyle: "medium" }).format(new Date(campaign.createdAt))}</em></div>)}</div>
           </div>
         </form>
       </section></div>}
       {showSettings && <SettingsDialog onClose={() => setShowSettings(false)} />}
+      {showNfc && <NfcManager businessId={merchant.id} onClose={() => setShowNfc(false)} onClaimed={syncNfcReporting} />}
       {showVerify && <div className="modal-backdrop card-editor-backdrop" onMouseDown={() => setShowVerify(false)}><form className="verify-dialog" onSubmit={verifyClaim} onMouseDown={(event) => event.stopPropagation()}>
         <div className="flex items-start justify-between"><div><div className="page-kicker">In-store redemption</div><div className="mt-2 text-2xl font-extrabold tracking-[-.04em] text-[#123b30]">Verify claim code</div><p className="mt-2 text-sm text-[#73827d]">Enter the code shown on the customer’s phone. Codes are valid for 24 hours and can only be used once.</p></div><button type="button" className="icon-button" onClick={() => setShowVerify(false)}>×</button></div>
         <label className="field-label mt-7">Customer claim code<input required className="field claim-code-input" value={verifyCode} onChange={(event) => setVerifyCode(event.target.value.replace(/[^a-zA-Z0-9]/g, "").toUpperCase())} placeholder="e.g. A1B2C3D4" maxLength={8} /></label>
@@ -1033,6 +1280,7 @@ function BusinessDashboard({ onLogout, onNotifications, unreadCount, businesses,
         portal="business"
         onLogout={onLogout}
         actions={[
+          { label: "Issue points by NFC", description: "Create a secure five-minute point issue", icon: "nfc", onClick: () => setShowNfc(true) },
           { label: "View QR code", description: "Show your unique customer join code", icon: "grid", onClick: () => setShowQr(true) },
           { label: "Customer history", description: "Review issued and claimed points", icon: "grid", onClick: () => setShowHistory(true) },
           { label: "Manage rewards", description: "Add or edit customer rewards", icon: "gift", onClick: () => setShowRewards(true) },
@@ -1138,7 +1386,7 @@ function CustomerDashboard({ onLogout, onNotifications, unreadCount, notificatio
           {businesses.map((business) => (
             <button key={business.id} onClick={() => { setSelected(business); setClaimMessage(""); }} className="business-tile">
               <div className={`mini-card bg-gradient-to-br ${business.color}`}>
-                <div className="flex items-start justify-between"><div className="mini-logo"><img src={business.logo} alt="" /></div><span className="text-xs font-bold text-white/60">PERKLYN</span></div>
+                <div className="flex items-start justify-between"><div className="mini-logo"><img src={business.logo} alt="" /></div><span className="text-xs font-extrabold tracking-[-.02em] text-[#d4b95e]">Perklyn</span></div>
                 <div><div className="text-lg font-extrabold text-white">{business.name}</div><div className="mt-1 text-xs text-white/60">{business.category}</div></div>
               </div>
               <div className="p-5 text-left"><div className="flex items-end justify-between"><div><div className="text-xs font-bold uppercase tracking-[.12em] text-[#87938f]">Balance</div><div className="mt-1 text-2xl font-extrabold text-[#123b30]">{business.points.toLocaleString()} <small className="text-sm">pts</small></div></div><i className="round-arrow"><Icon name="arrow" size={17} /></i></div><div className="mt-4 h-1.5 overflow-hidden rounded-full bg-[#e7edea]"><div className="h-full rounded-full bg-[#c2a84f]" style={{ width: `${business.progress}%` }} /></div><div className="mt-2 text-xs text-[#73817c]">{business.reward}</div></div>
@@ -1155,7 +1403,7 @@ function CustomerDashboard({ onLogout, onNotifications, unreadCount, notificatio
           <div className={`loyalty-card bg-gradient-to-br ${selected.color}`}>
             <div className="card-glow" />
             <div className="relative z-10 flex h-full flex-col justify-between">
-              <div className="flex items-start justify-between"><div className="loyalty-logo"><img src={selected.logo} alt="" /></div><div className="text-right"><div className="text-[.62rem] font-bold tracking-[.18em] text-white/55">PERKLYN</div><div className="mt-1 text-sm font-bold text-white">{selected.name}</div></div></div>
+              <div className="flex items-start justify-between"><div className="loyalty-logo"><img src={selected.logo} alt="" /></div><div className="text-right"><div className="text-xs font-extrabold tracking-[-.02em] text-[#d4b95e]">Perklyn</div><div className="mt-1 text-sm font-bold text-white">{selected.name}</div></div></div>
               <div><div className="text-[.62rem] font-bold uppercase tracking-[.18em] text-white/50">Available balance</div><div className="mt-1 text-5xl font-extrabold tracking-[-.05em] text-white">{selected.points.toLocaleString()}<span className="ml-2 text-base font-semibold text-[#ead58d]">POINTS</span></div></div>
               <div className="grid grid-cols-2"><div><div className="card-label">Member</div><div className="card-value">{safeProfile.name.toUpperCase()}</div></div><div><div className="card-label">Phone</div><div className="card-value">{safeProfile.phone}</div></div></div>
             </div>
@@ -1242,6 +1490,7 @@ function PasswordReset({ onComplete }: { onComplete: () => void }) {
 }
 
 export default function App() {
+  const [showNfcClaim, setShowNfcClaim] = useState(() => Boolean(captureNfcToken()));
   const [portal, setPortal] = useState<Portal>("signin");
   const [businessList, setBusinessList] = useState<Business[]>([]);
   const [businessDirectory, setBusinessDirectory] = useState<Business[]>([]);
@@ -1403,6 +1652,10 @@ export default function App() {
   }, [businessList]);
 
   useEffect(() => {
+    if (portal !== "signin" && getNfcToken()) setShowNfcClaim(true);
+  }, [portal]);
+
+  useEffect(() => {
     if (!backendReady || portal === "signin") return;
     const timer = window.setTimeout(() => {
       apiRequest("/state", {
@@ -1559,6 +1812,17 @@ export default function App() {
     setPortal("signin");
   };
 
+  const completeNfcClaim = (result: Awaited<ReturnType<typeof claimNfcPoints>>) => {
+    const claimedBusiness = result.business as unknown as Business;
+    setBusinessList((items) => {
+      const next = { ...claimedBusiness, points: result.balance, progress: claimedBusiness.progress ?? 0 };
+      return items.some((item) => item.id === claimedBusiness.id)
+        ? items.map((item) => item.id === claimedBusiness.id ? { ...item, ...next } : item)
+        : [...items, next];
+    });
+    setShowNfcClaim(false);
+  };
+
   if (passwordRecovery) return <PasswordReset onComplete={() => { setPasswordRecovery(false); setPortal("signin"); }} />;
   if (loading) return <div className="min-h-screen grid place-items-center bg-[#f5f8f6]"><Brand /><div className="fixed mt-20 text-sm font-bold text-[#6f817a]">Synchronizing Perklyn…</div></div>;
   const dashboard = portal === "business" && activeRole === "business"
@@ -1568,6 +1832,7 @@ export default function App() {
       : <SignIn onEnter={enterAccount} />;
   return <>
     {dashboard}
+    {showNfcClaim && <NfcClaimDialog portal={portal} onContinue={() => setShowNfcClaim(false)} onClaimed={completeNfcClaim} onSwitchAccount={logout} />}
     {showNotifications && activeRole && <NotificationCenter role={activeRole} notifications={notifications} unreadCount={unreadCount} preferences={notificationPreferences} permission={notificationPermission} busy={notificationBusy} message={notificationMessage} onClose={() => setShowNotifications(false)} onEnable={enableNotifications} onDisable={disableNotifications} onPreference={updateNotificationPreference} onOpenNotification={openNotification} onReadAll={readAllNotifications} />}
     {showNotificationPrompt && activeRole && <NotificationPrompt busy={notificationBusy} onEnable={enableNotifications} onDismiss={() => { localStorage.setItem("perklyn-notification-prompt-dismissed", String(Date.now())); setShowNotificationPrompt(false); }} />}
   </>;

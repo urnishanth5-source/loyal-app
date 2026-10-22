@@ -33,7 +33,7 @@ const checkRateLimit = async (bucket: string, identifier: string, limit: number,
 
 type NotificationCategory = "loyaltyActivity" | "businessUpdates" | "businessOperations";
 type NotificationPayload = {
-  type: "points_changed" | "reward_claimed" | "reward_verified" | "member_joined" | "business_broadcast";
+  type: "points_changed" | "reward_claimed" | "reward_verified" | "member_joined" | "business_broadcast" | "nfc_points_claimed";
   category: NotificationCategory;
   title: string;
   body: string;
@@ -162,6 +162,65 @@ const ownedBusiness = async (businessId: number, userId: string) => {
   return business?._ownerId === userId ? business : null;
 };
 
+const validNfcToken = (token: string) => /^[A-Za-z0-9_-]{43}$/.test(token);
+const randomToken = () => {
+  const bytes = crypto.getRandomValues(new Uint8Array(32));
+  return btoa(String.fromCharCode(...bytes)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+};
+const nfcRpc = async (name: string, parameters: Record<string, unknown>) => {
+  const { data, error } = await adminClient().rpc(name, parameters);
+  if (error) throw error;
+  return data;
+};
+const currentNfcIssue = async (card: any) => {
+  const active = await kv.get(`nfc-active:${card.id}`);
+  const issue = active?.currentIssueKey ? await kv.get(active.currentIssueKey) : null;
+  if (issue?.status === "pending" && new Date(issue.expiresAt).getTime() <= Date.now()) {
+    const result = await nfcRpc("perklyn_cancel_nfc_issue", {
+      p_active_key: `nfc-active:${card.id}`,
+      p_issue_key: active.currentIssueKey,
+      p_owner_id: card.ownerId,
+    });
+    return result?.issue ?? { ...issue, status: "expired" };
+  }
+  return issue;
+};
+
+const reconcileNfcClaim = async (issue: any, balance: number, nfcPoints: number) => {
+  if (await kv.get(`nfc-reconciled:${issue.id}`)) return;
+  const ownerState = await kv.get(`state:${issue.ownerId}`) ?? {};
+  const customers = Array.isArray(ownerState.customers) ? ownerState.customers : [];
+  const customer = {
+    id: Date.now(),
+    name: issue.claimedCustomerName,
+    phone: issue.claimedCustomerPhone,
+    points: balance,
+    nfcPoints,
+    reward: "Welcome reward",
+    joined: "Just now",
+  };
+  ownerState.customers = customers.some((item: any) => normalizePhone(item.phone) === normalizePhone(customer.phone))
+    ? customers.map((item: any) => normalizePhone(item.phone) === normalizePhone(customer.phone) ? { ...item, points: balance, nfcPoints } : item)
+    : [customer, ...customers];
+  const activity = {
+    id: `nfc:${issue.id}`,
+    businessId: issue.businessId,
+    customerName: issue.claimedCustomerName,
+    phone: issue.claimedCustomerPhone,
+    type: "nfc_issued",
+    source: "nfc",
+    points: issue.amount,
+    description: issue.reason ? `NFC points issued: ${issue.reason}` : "Points issued by NFC",
+    occurredAt: issue.claimedAt,
+  };
+  const activities = Array.isArray(ownerState.activities) ? ownerState.activities : [];
+  ownerState.activities = activities.some((item: any) => item.id === activity.id) ? activities : [activity, ...activities];
+  await kv.set(`state:${issue.ownerId}`, ownerState);
+  await kv.set(`audit:${issue.businessId}:nfc:${issue.id}`, activity);
+  await indexBusinessMember(Number(issue.businessId), { phone: issue.claimedCustomerPhone, name: issue.claimedCustomerName }, issue.claimedByUserId);
+  await kv.set(`nfc-reconciled:${issue.id}`, { reconciledAt: new Date().toISOString() });
+};
+
 const getBusinessAudience = async (businessId: number) => {
   const indexed = await kv.getByPrefix(`business-member:${businessId}:`);
   const members = new Map<string, any>();
@@ -206,6 +265,21 @@ app.use("*", async (c, next) => {
   c.header("X-Frame-Options", "DENY");
   c.header("Referrer-Policy", "no-referrer");
   c.header("Cache-Control", "no-store");
+});
+app.onError((error: any, c) => {
+  c.header("Access-Control-Allow-Origin", "*");
+  c.header("Content-Type", "application/json");
+  const databaseSetupMissing =
+    error?.code === "PGRST202" ||
+    String(error?.message ?? "").includes("perklyn_create_nfc_issue") ||
+    String(error?.message ?? "").includes("perklyn_claim_nfc_issue") ||
+    String(error?.message ?? "").includes("perklyn_cancel_nfc_issue");
+  if (databaseSetupMissing) {
+    console.log("NFC database functions are not installed", error?.code ?? "missing_rpc");
+    return c.json({ error: "NFC database setup is incomplete. Apply the latest Supabase migration, then redeploy the Edge Function." }, 503);
+  }
+  console.log("Unhandled server request failed", error?.code ?? error?.name ?? "unknown");
+  return c.json({ error: "The Perklyn server could not complete this request. Try again shortly." }, 500);
 });
 
 app.get(`${prefix}/health`, (c) => c.json({ status: "ok" }));
@@ -611,6 +685,271 @@ app.post(`${prefix}/join-business`, async (c) => {
     await indexBusinessMember(Number(business.id), { phone: profile.phone, name: profile.name }, user.id);
   }
   return c.json({ business, membership: existing ?? { points: 0, reward: "Welcome reward" } });
+});
+
+app.get(`${prefix}/nfc/card`, async (c) => {
+  const user = await authenticatedUser(c);
+  if (!user) return c.json({ error: "Unauthorized" }, 401);
+  const businessId = Number(c.req.query("businessId"));
+  if (!await ownedBusiness(businessId, user.id)) return c.json({ error: "You do not own this business." }, 403);
+  const mapping = await kv.get(`nfc-card-business:${businessId}`);
+  const card = mapping?.cardId ? await kv.get(`nfc-card:${mapping.cardId}`) : null;
+  const provisions = await kv.getByPrefix("nfc-provision:");
+  await Promise.all(provisions.filter((item: any) => new Date(item.expiresAt).getTime() <= Date.now()).map((item: any) => kv.del(`nfc-provision:${item.id}`)));
+  const provision = provisions.find((item: any) =>
+    Number(item.businessId) === businessId &&
+    item.ownerId === user.id &&
+    new Date(item.expiresAt).getTime() > Date.now()
+  );
+  return c.json({
+    card: card?.status === "active" ? { id: card.id, status: card.status, activatedAt: card.activatedAt } : null,
+    provision: provision ? {
+      id: provision.id,
+      writeUrl: provision.writeUrl,
+      expiresAt: provision.expiresAt,
+      replacing: Boolean(provision.replacingCardId),
+    } : null,
+  });
+});
+
+app.post(`${prefix}/nfc/card/provision`, async (c) => {
+  const user = await authenticatedUser(c);
+  if (!user) return c.json({ error: "Unauthorized" }, 401);
+  const { businessId: rawBusinessId, replaceExisting = false } = await c.req.json();
+  const businessId = Number(rawBusinessId);
+  if (!await ownedBusiness(businessId, user.id)) return c.json({ error: "You do not own this business." }, 403);
+  if (!await checkRateLimit("nfc-provision", `${user.id}:${businessId}`, 5, 60 * 60 * 1000)) return c.json({ error: "Too many card setup attempts. Try again later." }, 429);
+  const mapping = await kv.get(`nfc-card-business:${businessId}`);
+  if (mapping?.cardId && !replaceExisting) return c.json({ error: "This business already has an NFC card." }, 409);
+  const provisions = await kv.getByPrefix("nfc-provision:");
+  const existing = provisions.find((item: any) => Number(item.businessId) === businessId && item.ownerId === user.id && new Date(item.expiresAt).getTime() > Date.now());
+  if (existing) return c.json({ provision: { id: existing.id, writeUrl: existing.writeUrl, expiresAt: existing.expiresAt, replacing: Boolean(existing.replacingCardId) } });
+  const id = crypto.randomUUID();
+  const pendingCardId = crypto.randomUUID();
+  const rawToken = randomToken();
+  const tokenHash = await hashText(rawToken);
+  const createdAt = new Date().toISOString();
+  const expiresAt = new Date(Date.now() + 30 * 60 * 1000).toISOString();
+  const writeUrl = `https://www.perklyn.in/?nfc=${rawToken}`;
+  await kv.set(`nfc-provision:${id}`, {
+    id,
+    businessId,
+    ownerId: user.id,
+    pendingCardId,
+    rawToken,
+    tokenHash,
+    writeUrl,
+    replacingCardId: mapping?.cardId,
+    createdAt,
+    expiresAt,
+  });
+  return c.json({ provision: { id, writeUrl, expiresAt, replacing: Boolean(mapping?.cardId) } }, 201);
+});
+
+app.delete(`${prefix}/nfc/card/provision`, async (c) => {
+  const user = await authenticatedUser(c);
+  if (!user) return c.json({ error: "Unauthorized" }, 401);
+  const { businessId, provisionId } = await c.req.json();
+  if (!await ownedBusiness(Number(businessId), user.id)) return c.json({ error: "You do not own this business." }, 403);
+  const provision = await kv.get(`nfc-provision:${provisionId}`);
+  if (provision?.ownerId === user.id && Number(provision.businessId) === Number(businessId)) await kv.del(`nfc-provision:${provisionId}`);
+  return c.json({ cancelled: true });
+});
+
+app.post(`${prefix}/nfc/card/activate`, async (c) => {
+  const user = await authenticatedUser(c);
+  if (!user) return c.json({ error: "Unauthorized" }, 401);
+  const { businessId: rawBusinessId, provisionId } = await c.req.json();
+  const businessId = Number(rawBusinessId);
+  if (!await ownedBusiness(businessId, user.id)) return c.json({ error: "You do not own this business." }, 403);
+  if (!await checkRateLimit("nfc-activate", `${user.id}:${businessId}`, 10, 60 * 60 * 1000)) return c.json({ error: "Too many activation attempts. Try again later." }, 429);
+  const provision = await kv.get(`nfc-provision:${provisionId}`);
+  if (!provision || provision.ownerId !== user.id || Number(provision.businessId) !== businessId) return c.json({ error: "Card setup was not found." }, 404);
+  if (new Date(provision.expiresAt).getTime() <= Date.now()) {
+    await kv.del(`nfc-provision:${provisionId}`);
+    return c.json({ error: "This card setup expired. Start again." }, 410);
+  }
+  const currentMapping = await kv.get(`nfc-card-business:${businessId}`);
+  if (currentMapping?.cardId && currentMapping.cardId !== provision.replacingCardId) {
+    return c.json({ error: "Another NFC card was activated for this business. Start replacement setup to change it." }, 409);
+  }
+  if (provision.replacingCardId && currentMapping?.cardId !== provision.replacingCardId) {
+    return c.json({ error: "The active NFC card changed during setup. Start again." }, 409);
+  }
+  const activatedAt = new Date().toISOString();
+  const card = {
+    id: provision.pendingCardId,
+    businessId,
+    ownerId: user.id,
+    tokenHash: provision.tokenHash,
+    status: "active",
+    createdAt: provision.createdAt,
+    activatedAt,
+  };
+  await kv.mset(
+    [`nfc-card:${card.id}`, `nfc-card-token:${card.tokenHash}`, `nfc-active:${card.id}`],
+    [card, { cardId: card.id, businessId, ownerId: user.id }, { cardId: card.id, businessId, ownerId: user.id, status: "active", updatedAt: activatedAt }],
+  );
+  if (provision.replacingCardId) {
+    const oldCard = await kv.get(`nfc-card:${provision.replacingCardId}`);
+    const oldActive = await kv.get(`nfc-active:${provision.replacingCardId}`);
+    if (oldActive?.currentIssueKey) {
+      await nfcRpc("perklyn_cancel_nfc_issue", {
+        p_active_key: `nfc-active:${provision.replacingCardId}`,
+        p_issue_key: oldActive.currentIssueKey,
+        p_owner_id: user.id,
+      });
+    }
+    if (oldCard) {
+      await kv.set(`nfc-card:${oldCard.id}`, { ...oldCard, status: "disabled", disabledAt: activatedAt, replacedByCardId: card.id });
+      await kv.del(`nfc-card-token:${oldCard.tokenHash}`);
+    }
+  }
+  await kv.set(`nfc-card-business:${businessId}`, { businessId, cardId: card.id, ownerId: user.id, status: "active", activatedAt });
+  await kv.del(`nfc-provision:${provisionId}`);
+  return c.json({ card: { id: card.id, status: card.status, activatedAt } });
+});
+
+app.post(`${prefix}/nfc/issues`, async (c) => {
+  const user = await authenticatedUser(c);
+  if (!user) return c.json({ error: "Unauthorized" }, 401);
+  const body = await c.req.json();
+  const businessId = Number(body.businessId);
+  const amount = Number(body.amount);
+  const reason = String(body.reason ?? "").trim();
+  if (!await ownedBusiness(businessId, user.id)) return c.json({ error: "You do not own this business." }, 403);
+  if (!Number.isInteger(amount) || amount < 1 || amount > 10_000) return c.json({ error: "Enter between 1 and 10,000 points." }, 400);
+  if (reason.length > 100 || /[\u0000-\u001f\u007f]/.test(reason)) return c.json({ error: "Keep the reason under 100 characters." }, 400);
+  if (!await checkRateLimit("nfc-issue", `${user.id}:${businessId}`, 30, 60 * 60 * 1000)) return c.json({ error: "This business has reached its hourly NFC issue limit." }, 429);
+  const mapping = await kv.get(`nfc-card-business:${businessId}`);
+  const card = mapping?.cardId ? await kv.get(`nfc-card:${mapping.cardId}`) : null;
+  if (!card || card.status !== "active" || card.ownerId !== user.id) return c.json({ error: "Connect an active NFC card first." }, 400);
+  const id = crypto.randomUUID();
+  const issue = { id, cardId: card.id, businessId, ownerId: user.id, amount, ...(reason ? { reason } : {}) };
+  const result = await nfcRpc("perklyn_create_nfc_issue", {
+    p_active_key: `nfc-active:${card.id}`,
+    p_issue_key: `nfc-issue:${id}`,
+    p_issue_value: issue,
+  });
+  if (result?.result === "active_issue_exists") return c.json({ error: "An NFC issue is already active.", issue: result.issue, serverNow: new Date().toISOString() }, 409);
+  if (result?.result !== "created") return c.json({ error: "The NFC card is not active." }, 409);
+  return c.json({ issue: result.issue, serverNow: result.serverNow }, 201);
+});
+
+app.get(`${prefix}/nfc/issues/current`, async (c) => {
+  const user = await authenticatedUser(c);
+  if (!user) return c.json({ error: "Unauthorized" }, 401);
+  const businessId = Number(c.req.query("businessId"));
+  if (!await ownedBusiness(businessId, user.id)) return c.json({ error: "You do not own this business." }, 403);
+  const mapping = await kv.get(`nfc-card-business:${businessId}`);
+  const card = mapping?.cardId ? await kv.get(`nfc-card:${mapping.cardId}`) : null;
+  const issue = card ? await currentNfcIssue(card) : null;
+  if (issue?.status === "claimed" && !await kv.get(`nfc-reconciled:${issue.id}`)) {
+    const membership = await kv.get(`pending:${normalizePhone(issue.claimedCustomerPhone)}:${businessId}`);
+    if (membership) await reconcileNfcClaim(issue, Number(membership.points ?? 0), Number(membership.nfcPoints ?? 0));
+  }
+  return c.json({ card: card ? { id: card.id, status: card.status, activatedAt: card.activatedAt } : null, issue, serverNow: new Date().toISOString() });
+});
+
+app.post(`${prefix}/nfc/issues/:id/cancel`, async (c) => {
+  const user = await authenticatedUser(c);
+  if (!user) return c.json({ error: "Unauthorized" }, 401);
+  const issue = await kv.get(`nfc-issue:${c.req.param("id")}`);
+  if (!issue || !await ownedBusiness(Number(issue.businessId), user.id) || issue.ownerId !== user.id) return c.json({ error: "NFC issue not found." }, 404);
+  const result = await nfcRpc("perklyn_cancel_nfc_issue", {
+    p_active_key: `nfc-active:${issue.cardId}`,
+    p_issue_key: `nfc-issue:${issue.id}`,
+    p_owner_id: user.id,
+  });
+  if (result?.result !== "cancelled") return c.json({ error: `This issue is already ${result?.result ?? "closed"}.`, issue: result?.issue }, 409);
+  return c.json({ issue: result.issue, serverNow: result.serverNow });
+});
+
+app.post(`${prefix}/nfc/claim-preview`, async (c) => {
+  const { token: rawToken = "" } = await c.req.json();
+  const token = String(rawToken);
+  if (!validNfcToken(token)) return c.json({ status: "invalid_card", serverNow: new Date().toISOString() });
+  const tokenHash = await hashText(token);
+  if (!await checkRateLimit("nfc-preview", tokenHash, 120, 15 * 60 * 1000)) return c.json({ error: "Too many card checks. Try again shortly." }, 429);
+  const lookup = await kv.get(`nfc-card-token:${tokenHash}`);
+  const card = lookup?.cardId ? await kv.get(`nfc-card:${lookup.cardId}`) : null;
+  if (!card || card.status !== "active") return c.json({ status: "invalid_card", serverNow: new Date().toISOString() });
+  const business = await kv.get(`business:${card.businessId}`);
+  const issue = await currentNfcIssue(card);
+  const status = !issue ? "no_active_issue" : issue.status === "pending" ? "ready" : issue.status;
+  return c.json({
+    status,
+    businessName: business?.name ?? "Perklyn business",
+    ...(issue ? { amount: issue.amount, issueId: issue.id, expiresAt: issue.expiresAt } : {}),
+    serverNow: new Date().toISOString(),
+  });
+});
+
+app.post(`${prefix}/nfc/claim`, async (c) => {
+  const user = await authenticatedUser(c);
+  if (!user) return c.json({ error: "Sign in with a customer account to claim these points." }, 401);
+  const profile = await kv.get(`profile:${user.id}`) ?? user.user_metadata ?? {};
+  if (profile.role !== "customer") return c.json({ error: "A customer account is required to claim NFC points." }, 403);
+  const { token: rawToken = "" } = await c.req.json();
+  const token = String(rawToken);
+  if (!validNfcToken(token)) return c.json({ error: "This NFC card is not valid." }, 400);
+  const tokenHash = await hashText(token);
+  if (!await checkRateLimit("nfc-claim-user", user.id, 10, 5 * 60 * 1000) || !await checkRateLimit("nfc-claim-token", tokenHash, 20, 5 * 60 * 1000)) return c.json({ error: "Too many claim attempts. Try again shortly." }, 429);
+  const lookup = await kv.get(`nfc-card-token:${tokenHash}`);
+  const card = lookup?.cardId ? await kv.get(`nfc-card:${lookup.cardId}`) : null;
+  const active = card ? await kv.get(`nfc-active:${card.id}`) : null;
+  if (!card || card.status !== "active" || !active?.currentIssueKey) return c.json({ error: "No points are ready on this card." }, 409);
+  const business = await kv.get(`business:${card.businessId}`);
+  if (!business || business._ownerId !== card.ownerId) return c.json({ error: "This NFC card is no longer connected." }, 409);
+  const membershipKey = `pending:${normalizePhone(profile.phone)}:${card.businessId}`;
+  const seed = {
+    business,
+    ownerId: card.ownerId,
+    customerName: profile.name,
+    phone: profile.phone,
+    points: 0,
+    nfcPoints: 0,
+    reward: "Welcome reward",
+  };
+  const result = await nfcRpc("perklyn_claim_nfc_issue", {
+    p_active_key: `nfc-active:${card.id}`,
+    p_issue_key: active.currentIssueKey,
+    p_membership_key: membershipKey,
+    p_membership_seed: seed,
+    p_claimant_user_id: user.id,
+  });
+  if (result?.result !== "claimed") return c.json({ error: result?.result === "expired" ? "This point issue has expired." : result?.result === "claimed" ? "These points were already claimed." : "These points are no longer available.", status: result?.result }, 409);
+  await reconcileNfcClaim(result.issue, Number(result.balance), Number(result.nfcPoints));
+  if (!await kv.get(`nfc-notified:${result.issue.id}`)) {
+    await kv.set(`nfc-notified:${result.issue.id}`, { createdAt: new Date().toISOString() });
+    background(Promise.all([
+      dispatchNotification(user.id, "customer", {
+        type: "points_changed",
+        category: "loyaltyActivity",
+        title: `NFC points added at ${business.name}`,
+        body: `${result.issue.amount.toLocaleString()} points added. New balance: ${Number(result.balance).toLocaleString()} points.`,
+        businessId: Number(card.businessId),
+        businessName: business.name,
+        data: { balance: Number(result.balance), delta: Number(result.issue.amount), source: "nfc" },
+      }),
+      dispatchNotification(String(card.ownerId), "business", {
+        type: "nfc_points_claimed",
+        category: "businessOperations",
+        title: "NFC points claimed",
+        body: `${profile.name} claimed ${Number(result.issue.amount).toLocaleString()} NFC points.`,
+        businessId: Number(card.businessId),
+        businessName: business.name,
+      }),
+    ]));
+  }
+  const { _ownerId, ...businessSummary } = business;
+  return c.json({
+    business: businessSummary,
+    amount: Number(result.issue.amount),
+    balance: Number(result.balance),
+    nfcPoints: Number(result.nfcPoints),
+    membershipCreated: Boolean(result.membershipCreated),
+  });
 });
 
 app.get(`${prefix}/claim-capabilities`, async (c) => {

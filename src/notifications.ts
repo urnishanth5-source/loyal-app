@@ -10,7 +10,7 @@ export type NotificationPreferences = {
 
 export type PerklynNotification = {
   id: string;
-  type: "points_changed" | "reward_claimed" | "reward_verified" | "member_joined" | "business_broadcast";
+  type: "points_changed" | "reward_claimed" | "reward_verified" | "member_joined" | "business_broadcast" | "nfc_points_claimed";
   category: "loyaltyActivity" | "businessUpdates" | "businessOperations";
   title: string;
   body: string;

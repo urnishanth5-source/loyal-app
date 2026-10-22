@@ -2060,7 +2060,7 @@ button {
   .customer-reward button { grid-column: 1 / -1; width: 100%; }
 }
 
-/* LoyaltyHub glass theme */
+/* Perklyn glass theme */
 body {
   background:
     radial-gradient(circle at 8% 5%, rgb(210 190 108 / 24%), transparent 28rem),
@@ -2254,6 +2254,436 @@ body {
   .table-card,
   .business-tile {
     backdrop-filter: blur(18px) saturate(135%);
+  }
+}
+
+/* NFC issuance and claim flow */
+.customer-row {
+  grid-template-columns: 1.35fr 1fr .65fr .8fr 1.1fr .2fr;
+}
+
+.nfc-points-cell {
+  color: #ead887;
+  font-size: .72rem;
+  font-weight: 800;
+}
+
+.customer-activity-row > i.nfc_issued,
+.business-history-row > i.nfc_issued {
+  color: #f0dc8b;
+  background: rgb(213 187 91 / 18%);
+}
+
+.activity-kind.nfc_issued {
+  color: #6f591c;
+  background: #f3e9be;
+}
+
+.customer-activity-row > span.nfc_issued,
+.business-history-row > span.nfc_issued {
+  color: #2e775e;
+}
+
+.nfc-manager {
+  width: min(calc(100% - 2rem), 46rem);
+  max-height: calc(100vh - 2rem);
+  margin: auto;
+  overflow: auto;
+  padding: 2rem;
+  border: 1px solid rgb(255 255 255 / 18%);
+  border-radius: 1.5rem;
+  color: #eaf6f0;
+  background: linear-gradient(145deg, rgb(8 63 47 / 96%), rgb(2 39 29 / 96%));
+  box-shadow: 0 2rem 6rem rgb(0 20 14 / 45%);
+}
+
+.nfc-manager [class*="text-\[\#123b30\]"] {
+  color: #f4fbf7;
+}
+
+.nfc-manager [class*="text-\[\#73827d\]"] {
+  color: rgb(225 241 233 / 68%);
+}
+
+.nfc-empty {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 1rem;
+  margin-top: 1.7rem;
+  padding: 1.2rem;
+  border: 1px solid rgb(255 255 255 / 13%);
+  border-radius: 1.2rem;
+  background: rgb(255 255 255 / 7%);
+}
+
+.nfc-empty > i,
+.nfc-result > i {
+  display: grid;
+  width: 3.2rem;
+  height: 3.2rem;
+  place-items: center;
+  border-radius: 1rem;
+  color: #f0dc8b;
+  background: rgb(230 209 126 / 14%);
+}
+
+.nfc-empty b,
+.nfc-connected b,
+.nfc-step b,
+.nfc-manual b,
+.nfc-result strong {
+  display: block;
+  color: #f4fbf7;
+  font-size: .85rem;
+}
+
+.nfc-empty p,
+.nfc-step p,
+.nfc-manual p,
+.nfc-result p {
+  margin: .3rem 0 0;
+  color: rgb(225 241 233 / 66%);
+  font-size: .72rem;
+  line-height: 1.6;
+}
+
+.nfc-provision,
+.nfc-active-card {
+  display: grid;
+  gap: 1rem;
+  margin-top: 1.7rem;
+}
+
+.nfc-step {
+  display: flex;
+  align-items: flex-start;
+  gap: .8rem;
+}
+
+.nfc-step > span {
+  display: grid;
+  width: 1.8rem;
+  height: 1.8rem;
+  flex: 0 0 auto;
+  place-items: center;
+  border-radius: 50%;
+  color: #183f33;
+  background: #e0c86f;
+  font-size: .7rem;
+  font-weight: 800;
+}
+
+.nfc-manual {
+  display: grid;
+  grid-template-columns: 9rem 1fr;
+  gap: 1.2rem;
+  padding: 1rem;
+  border: 1px solid rgb(255 255 255 / 13%);
+  border-radius: 1.2rem;
+  background: rgb(255 255 255 / 7%);
+}
+
+.nfc-qr {
+  display: grid;
+  aspect-ratio: 1;
+  place-items: center;
+  overflow: hidden;
+  border-radius: .8rem;
+  color: #62766f;
+  background: white;
+  font-size: .65rem;
+}
+
+.nfc-qr img {
+  width: 100%;
+}
+
+.nfc-manual code {
+  display: block;
+  max-width: 100%;
+  margin: .7rem 0;
+  overflow: hidden;
+  color: #ead887;
+  font-size: .62rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.nfc-connected {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: .8rem;
+  padding: .9rem 1rem;
+  border: 1px solid rgb(108 203 154 / 28%);
+  border-radius: 1rem;
+  background: rgb(78 173 124 / 10%);
+}
+
+.nfc-connected > i {
+  display: grid;
+  width: 2rem;
+  height: 2rem;
+  place-items: center;
+  border-radius: 50%;
+  color: #c9f1db;
+  background: rgb(79 179 128 / 24%);
+}
+
+.nfc-connected span {
+  display: block;
+  margin-top: .15rem;
+  color: rgb(225 241 233 / 65%);
+  font-size: .65rem;
+}
+
+.nfc-connected button {
+  border: 0;
+  color: #ead887;
+  background: transparent;
+  font-size: .68rem;
+  font-weight: 800;
+}
+
+.nfc-issue-form {
+  display: grid;
+  grid-template-columns: .65fr 1.35fr;
+  align-items: end;
+  gap: 1rem;
+  padding-top: .4rem;
+}
+
+.nfc-issue-form .btn {
+  grid-column: 1 / -1;
+  justify-content: center;
+}
+
+.nfc-live-issue {
+  display: grid;
+  justify-items: center;
+  padding: 1.8rem;
+  border: 1px solid rgb(235 214 132 / 25%);
+  border-radius: 1.3rem;
+  background: radial-gradient(circle at 50% 10%, rgb(214 190 96 / 16%), transparent 55%), rgb(255 255 255 / 6%);
+  text-align: center;
+}
+
+.nfc-status {
+  display: flex;
+  align-items: center;
+  gap: .7rem;
+}
+
+.nfc-status span {
+  padding: .25rem .55rem;
+  border-radius: 2rem;
+  color: #183f33;
+  background: #e0c86f;
+  font-size: .62rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.nfc-status strong {
+  color: #f3e6ae;
+  font-variant-numeric: tabular-nums;
+}
+
+.nfc-amount {
+  margin-top: .7rem;
+  color: white;
+  font-size: clamp(2.8rem, 8vw, 4.5rem);
+  font-weight: 800;
+  letter-spacing: -.06em;
+}
+
+.nfc-amount span {
+  display: block;
+  color: rgb(225 241 233 / 60%);
+  font-size: .72rem;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+}
+
+.nfc-live-issue p,
+.nfc-live-issue small {
+  color: rgb(225 241 233 / 65%);
+  font-size: .7rem;
+}
+
+.nfc-live-issue .btn {
+  margin-top: 1rem;
+}
+
+.nfc-result {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 1rem;
+  padding: 1.2rem;
+  border: 1px solid rgb(255 255 255 / 13%);
+  border-radius: 1.2rem;
+  background: rgb(255 255 255 / 7%);
+}
+
+.nfc-result > div > span,
+.nfc-result small {
+  display: block;
+  color: rgb(225 241 233 / 60%);
+  font-size: .65rem;
+}
+
+.nfc-result strong {
+  margin-top: .2rem;
+  font-size: 1.2rem;
+}
+
+.nfc-message {
+  margin-top: 1rem;
+  padding: .8rem 1rem;
+  border: 1px solid rgb(235 214 132 / 22%);
+  border-radius: .8rem;
+  color: #f2e4a8;
+  background: rgb(226 202 112 / 9%);
+  font-size: .72rem;
+  line-height: 1.5;
+}
+
+.nfc-claim-backdrop {
+  z-index: 90;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+}
+
+.nfc-claim-dialog {
+  width: min(100%, 27rem);
+  padding: 2rem;
+  border: 1px solid rgb(235 214 132 / 25%);
+  border-radius: 1.5rem;
+  color: #eaf6f0;
+  background: linear-gradient(145deg, rgb(8 67 50 / 97%), rgb(2 37 28 / 97%));
+  box-shadow: 0 2rem 6rem rgb(0 20 14 / 55%);
+  text-align: center;
+}
+
+.nfc-claim-mark {
+  display: grid;
+  width: 4rem;
+  height: 4rem;
+  margin: 0 auto 1.2rem;
+  place-items: center;
+  border-radius: 1.2rem;
+  color: #f1dd8c;
+  background: rgb(229 207 122 / 14%);
+}
+
+.nfc-claim-dialog .page-kicker {
+  justify-content: center;
+}
+
+.nfc-claim-title {
+  margin-top: .9rem;
+  color: white;
+  font-size: 2rem;
+  font-weight: 800;
+  letter-spacing: -.05em;
+}
+
+.nfc-claim-dialog > p {
+  margin: .4rem 0 1.2rem;
+  color: rgb(225 241 233 / 70%);
+  font-size: .82rem;
+}
+
+.nfc-claim-dialog > p b {
+  color: #f0df9a;
+}
+
+.nfc-claim-countdown {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 1rem;
+  padding: .8rem 1rem;
+  border-radius: .8rem;
+  color: rgb(225 241 233 / 65%);
+  background: rgb(255 255 255 / 7%);
+  font-size: .72rem;
+}
+
+.nfc-claim-countdown strong {
+  color: #f2dfa0;
+  font-size: 1.1rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.nfc-claim-warning {
+  margin-bottom: 1rem;
+  padding: .8rem;
+  border-radius: .8rem;
+  color: #f0dfa0;
+  background: rgb(226 202 112 / 10%);
+  font-size: .72rem;
+}
+
+.nfc-claim-security {
+  display: block;
+  margin-top: 1.2rem;
+  color: rgb(225 241 233 / 48%);
+  font-size: .62rem;
+  line-height: 1.5;
+}
+
+@media (max-width: 720px) {
+  .customer-row {
+    grid-template-columns: 1fr auto;
+  }
+
+  .customer-row > :nth-child(2),
+  .customer-row > :nth-child(5),
+  .customer-row > :nth-child(6) {
+    display: none;
+  }
+
+  .customer-row > :nth-child(3) {
+    grid-column: 2;
+    grid-row: 1;
+  }
+
+  .customer-row > :nth-child(4) {
+    display: block;
+    grid-column: 1;
+    padding-left: 3.15rem;
+    font-size: .65rem;
+  }
+
+  .nfc-manager {
+    width: 100%;
+    max-height: calc(100vh - 1rem);
+    margin: auto .5rem .5rem;
+    padding: 1.3rem;
+    border-radius: 1.3rem;
+  }
+
+  .nfc-empty,
+  .nfc-result {
+    grid-template-columns: auto 1fr;
+  }
+
+  .nfc-empty .btn,
+  .nfc-result .btn {
+    grid-column: 1 / -1;
+    justify-content: center;
+  }
+
+  .nfc-manual {
+    grid-template-columns: 6.5rem 1fr;
+  }
+
+  .nfc-issue-form {
+    grid-template-columns: 1fr;
   }
 }
 

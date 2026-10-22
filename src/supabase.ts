@@ -24,14 +24,19 @@ const apiBase = `https://${projectId}.supabase.co/functions/v1/make-server-3a123
 
 export async function apiRequest<T>(path: string, options: RequestInit = {}): Promise<T> {
   const { data } = await supabase.auth.getSession();
-  const response = await fetch(`${apiBase}${path}`, {
-    ...options,
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${data.session?.access_token ?? publicAnonKey}`,
-      ...(options.headers ?? {}),
-    },
-  });
+  let response: Response;
+  try {
+    response = await fetch(`${apiBase}${path}`, {
+      ...options,
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${data.session?.access_token ?? publicAnonKey}`,
+        ...(options.headers ?? {}),
+      },
+    });
+  } catch {
+    throw new Error("Unable to reach the deployed Perklyn server. Redeploy the Supabase Edge Function from Make Settings, then try again.");
+  }
   const responseText = await response.text();
   const body = (() => {
     try {
