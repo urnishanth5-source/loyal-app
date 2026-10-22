@@ -1,6 +1,16 @@
 import { FormEvent, ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import QRCode from "qrcode";
 import { apiRequest, supabase } from "./supabase";
+import {
+  currentDeviceIsSubscribed,
+  getNotificationPermission,
+  isPushSupported,
+  NotificationCampaign,
+  NotificationPreferences,
+  PerklynNotification,
+  subscribeCurrentDevice,
+  unsubscribeCurrentDevice,
+} from "./notifications";
 
 type Portal = "signin" | "business" | "customer";
 type Role = "customer" | "business";
@@ -298,6 +308,7 @@ function Icon({ name, size = 20 }: { name: string; size?: number }) {
   const paths: Record<string, ReactNode> = {
     arrow: <><path d="M5 12h14" /><path d="m13 6 6 6-6 6" /></>,
     back: <><path d="m15 18-6-6 6-6" /></>,
+    bell: <><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9" /><path d="M10 21h4" /></>,
     building: <><rect x="4" y="3" width="16" height="18" rx="2" /><path d="M8 7h2M14 7h2M8 11h2M14 11h2M9 21v-5h6v5" /></>,
     card: <><rect x="3" y="5" width="18" height="14" rx="2" /><path d="M3 10h18" /></>,
     check: <path d="m5 12 4 4L19 6" />,
@@ -504,7 +515,7 @@ function SignIn({ onEnter }: { onEnter: (role: Role, isNew: boolean, details: { 
   );
 }
 
-function DashboardHeader({ title, subtitle, onLogout, onSettings, customer = false, floating = false }: { title: string; subtitle: string; onLogout: () => void; onSettings: () => void; customer?: boolean; floating?: boolean }) {
+function DashboardHeader({ title, subtitle, onLogout, onSettings, onNotifications, unreadCount = 0, customer = false, floating = false }: { title: string; subtitle: string; onLogout: () => void; onSettings: () => void; onNotifications: () => void; unreadCount?: number; customer?: boolean; floating?: boolean }) {
   return (
     <header className={`dashboard-header ${floating ? "floating-header" : ""}`}>
       <div className="top-brand-island"><Brand light /></div>
@@ -512,6 +523,7 @@ function DashboardHeader({ title, subtitle, onLogout, onSettings, customer = fal
         <div className="text-center"><div className="font-extrabold text-[#123b30]">{title}</div><div className="text-xs text-[#7c8b86]">{subtitle}</div></div>
       </div>
       <div className="header-actions flex items-center gap-2">
+        <button className="icon-button notification-button" onClick={onNotifications} aria-label={`Notifications${unreadCount ? `, ${unreadCount} unread` : ""}`}><Icon name="bell" size={20} />{unreadCount > 0 && <span>{unreadCount > 9 ? "9+" : unreadCount}</span>}</button>
         <button className="icon-button" onClick={onSettings} aria-label="Settings"><Icon name="settings" size={20} /></button>
         <button onClick={onLogout} className="icon-button" aria-label="Sign out"><Icon name="logout" size={20} /></button>
       </div>
@@ -530,6 +542,76 @@ function SettingsDialog({ onClose }: { onClose: () => void }) {
     </div>
     <div className="support-note"><Icon name="check" size={17} /><span>For point or reward questions, include the business name and your registered phone number.</span></div>
   </section></div>;
+}
+
+function NotificationCenter({
+  role,
+  notifications,
+  unreadCount,
+  preferences,
+  permission,
+  busy,
+  message,
+  onClose,
+  onEnable,
+  onDisable,
+  onPreference,
+  onOpenNotification,
+  onReadAll,
+}: {
+  role: Role;
+  notifications: PerklynNotification[];
+  unreadCount: number;
+  preferences: NotificationPreferences | null;
+  permission: string;
+  busy: boolean;
+  message: string;
+  onClose: () => void;
+  onEnable: () => void;
+  onDisable: () => void;
+  onPreference: (field: keyof NotificationPreferences, value: boolean) => void;
+  onOpenNotification: (notification: PerklynNotification) => void;
+  onReadAll: () => void;
+}) {
+  const supported = isPushSupported();
+  return <div className="modal-backdrop notification-backdrop" onMouseDown={onClose}><section className="notification-center" onMouseDown={(event) => event.stopPropagation()}>
+    <div className="notification-center-header">
+      <div><div className="page-kicker">Perklyn updates</div><div className="mt-2 text-2xl font-extrabold tracking-[-.04em] text-[#123b30]">Notifications</div><p className="mt-2 text-sm text-[#73827d]">{unreadCount ? `${unreadCount} unread update${unreadCount === 1 ? "" : "s"}` : "You’re all caught up."}</p></div>
+      <button className="icon-button" onClick={onClose} aria-label="Close">×</button>
+    </div>
+    <div className="notification-device-card">
+      <div><b>Device notifications</b><span>{!supported ? "Not supported by this browser" : permission === "denied" ? "Blocked in browser settings" : preferences?.pushEnabled ? "Enabled on this device" : "Get updates even when Perklyn is closed"}</span></div>
+      {supported && permission !== "denied" && (preferences?.pushEnabled
+        ? <Button disabled={busy} variant="secondary" onClick={onDisable}>Turn off</Button>
+        : <Button disabled={busy} onClick={onEnable}>Enable</Button>)}
+    </div>
+    {permission === "denied" && <div className="notification-warning">Notifications are blocked. Open your browser or app site settings, allow notifications for Perklyn, then return here.</div>}
+    {message && <div className="notification-message" role="status">{message}</div>}
+    {preferences && <div className="notification-preferences">
+      <div className="text-sm font-extrabold text-[#153d32]">What you receive</div>
+      {role === "customer" ? <>
+        <label><span><b>Loyalty activity</b><small>Point changes and verified rewards</small></span><input type="checkbox" checked={preferences.loyaltyActivity} onChange={(event) => onPreference("loyaltyActivity", event.target.checked)} /></label>
+        <label><span><b>Business updates</b><small>Offers and announcements from joined businesses</small></span><input type="checkbox" checked={preferences.businessUpdates} onChange={(event) => onPreference("businessUpdates", event.target.checked)} /></label>
+      </> : <label><span><b>Business operations</b><small>New members and reward claims</small></span><input type="checkbox" checked={preferences.businessOperations} onChange={(event) => onPreference("businessOperations", event.target.checked)} /></label>}
+    </div>}
+    <div className="notification-list-heading"><b>Inbox</b>{unreadCount > 0 && <button onClick={onReadAll}>Mark all as read</button>}</div>
+    <div className="notification-list">
+      {notifications.length === 0 ? <div className="notification-empty"><i><Icon name="bell" size={22} /></i><b>No notifications yet</b><span>Account activity and business updates will appear here.</span></div> : notifications.map((notification) => <button key={notification.id} className={`notification-row ${notification.readAt ? "" : "unread"}`} onClick={() => onOpenNotification(notification)}>
+        <i><Icon name={notification.type === "points_changed" ? "plus" : notification.type.includes("reward") ? "gift" : notification.type === "member_joined" ? "users" : "bell"} size={17} /></i>
+        <span><b>{notification.title}</b><small>{notification.body}</small><em>{new Intl.DateTimeFormat("en", { dateStyle: "medium", timeStyle: "short" }).format(new Date(notification.createdAt))}</em></span>
+        {!notification.readAt && <strong aria-label="Unread" />}
+      </button>)}
+    </div>
+  </section></div>;
+}
+
+function NotificationPrompt({ busy, onEnable, onDismiss }: { busy: boolean; onEnable: () => void; onDismiss: () => void }) {
+  return <aside className="notification-prompt" aria-label="Enable notifications">
+    <i><Icon name="bell" size={20} /></i>
+    <div><b>Stay in the loop</b><span>Get point, reward, and account updates even when Perklyn is closed.</span></div>
+    <Button disabled={busy} onClick={onEnable}>{busy ? "Enabling…" : "Enable"}</Button>
+    <button className="prompt-dismiss" onClick={onDismiss}>Not now</button>
+  </aside>;
 }
 
 function BottomIsland({ onLogout, portal, actions = [] }: { onLogout: () => void; portal: "business" | "customer"; actions?: Array<{ label: string; description: string; icon: string; onClick: () => void }> }) {
@@ -610,7 +692,7 @@ function QrScannerModal({ onClose, onScan }: { onClose: () => void; onScan: (val
   </section></div>;
 }
 
-function BusinessDashboard({ onLogout, businesses, setBusinesses, customers, setCustomers, activities, setActivities, profile, onCustomerAdded, onCustomerChanged }: { onLogout: () => void; businesses: Business[]; setBusinesses: React.Dispatch<React.SetStateAction<Business[]>>; customers: Customer[]; setCustomers: React.Dispatch<React.SetStateAction<Customer[]>>; activities: Activity[]; setActivities: React.Dispatch<React.SetStateAction<Activity[]>>; profile?: Profile; onCustomerAdded: (customer: Customer, businessId: number) => void; onCustomerChanged: (customer: Customer, businessId: number) => void }) {
+function BusinessDashboard({ onLogout, onNotifications, unreadCount, businesses, setBusinesses, customers, setCustomers, activities, setActivities, profile, onCustomerAdded, onCustomerChanged }: { onLogout: () => void; onNotifications: () => void; unreadCount: number; businesses: Business[]; setBusinesses: React.Dispatch<React.SetStateAction<Business[]>>; customers: Customer[]; setCustomers: React.Dispatch<React.SetStateAction<Customer[]>>; activities: Activity[]; setActivities: React.Dispatch<React.SetStateAction<Activity[]>>; profile?: Profile; onCustomerAdded: (customer: Customer, businessId: number) => void; onCustomerChanged: (customer: Customer, businessId: number) => void }) {
   const safeProfile: Profile = profile && typeof profile.name === "string"
     ? profile
     : { name: "Business owner", phone: "", isNew: false };
@@ -623,6 +705,13 @@ function BusinessDashboard({ onLogout, businesses, setBusinesses, customers, set
   const [showQr, setShowQr] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [showVerify, setShowVerify] = useState(false);
+  const [showBroadcast, setShowBroadcast] = useState(false);
+  const [broadcastTitle, setBroadcastTitle] = useState("");
+  const [broadcastBody, setBroadcastBody] = useState("");
+  const [broadcastAudience, setBroadcastAudience] = useState(0);
+  const [broadcastCampaigns, setBroadcastCampaigns] = useState<NotificationCampaign[]>([]);
+  const [broadcastMessage, setBroadcastMessage] = useState("");
+  const [broadcastBusy, setBroadcastBusy] = useState(false);
   const [customPoints, setCustomPoints] = useState("");
   const [verifyCode, setVerifyCode] = useState("");
   const [verifyResult, setVerifyResult] = useState<{ success: boolean; message: string; detail?: string } | null>(null);
@@ -780,14 +869,47 @@ function BusinessDashboard({ onLogout, businesses, setBusinesses, customers, set
     }));
     resetRewardForm();
   };
+  const openBroadcast = async () => {
+    setShowBroadcast(true);
+    setBroadcastMessage("");
+    try {
+      const [audience, campaigns] = await Promise.all([
+        apiRequest<{ eligibleRecipients: number }>(`/business/${merchant.id}/notification-audience`),
+        apiRequest<{ campaigns: NotificationCampaign[] }>(`/business/${merchant.id}/campaigns`),
+      ]);
+      setBroadcastAudience(audience.eligibleRecipients);
+      setBroadcastCampaigns(campaigns.campaigns);
+    } catch (error) {
+      setBroadcastMessage(error instanceof Error ? error.message : "Unable to load notification audience.");
+    }
+  };
+  const sendBroadcast = async (event: FormEvent) => {
+    event.preventDefault();
+    setBroadcastBusy(true);
+    setBroadcastMessage("");
+    try {
+      const result = await apiRequest<{ campaignId: string; eligibleRecipients: number }> (`/business/${merchant.id}/broadcast`, {
+        method: "POST",
+        body: JSON.stringify({ title: broadcastTitle, body: broadcastBody }),
+      });
+      setBroadcastMessage(`Notification queued for ${result.eligibleRecipients} opted-in member${result.eligibleRecipients === 1 ? "" : "s"}.`);
+      setBroadcastCampaigns((items) => [{ id: result.campaignId, title: broadcastTitle, body: broadcastBody, status: "queued", eligibleRecipients: result.eligibleRecipients, inboxCreated: 0, pushesDelivered: 0, createdAt: new Date().toISOString() }, ...items]);
+      setBroadcastTitle("");
+      setBroadcastBody("");
+    } catch (error) {
+      setBroadcastMessage(error instanceof Error ? error.message : "Unable to send this notification.");
+    } finally {
+      setBroadcastBusy(false);
+    }
+  };
 
   return (
     <div className="min-h-screen bg-[#f5f8f6]">
-      <DashboardHeader title={merchant.name} subtitle="Business portal" onLogout={onLogout} onSettings={() => setShowSettings(true)} floating />
+      <DashboardHeader title={merchant.name} subtitle="Business portal" onLogout={onLogout} onSettings={() => setShowSettings(true)} onNotifications={onNotifications} unreadCount={unreadCount} floating />
       <main className="dashboard-main">
         <div className="flex flex-col justify-between gap-5 md:flex-row md:items-end">
           <div><div className="page-kicker">Business overview</div><div className="page-title">Good morning, {safeProfile.name.split(" ")[0]}.</div><p className="mt-2 text-[#6e7d77]">{safeProfile.isNew ? "Your new loyalty account is ready to set up." : "Here’s what’s happening with your loyalty community."}</p></div>
-          <div className="flex flex-wrap gap-2"><Button variant="secondary" onClick={() => setShowQr(true)}><Icon name="grid" size={18} />View QR code</Button><Button variant="secondary" onClick={() => setShowHistory(true)}><Icon name="grid" size={18} />History</Button><Button variant="secondary" onClick={() => setShowRewards(true)}><Icon name="gift" size={18} />Manage rewards</Button><Button variant="secondary" onClick={openCardEditor}><Icon name="card" size={18} />Edit loyalty card</Button><Button onClick={() => setShowAdd(true)}><Icon name="plus" size={18} />Add customer</Button></div>
+          <div className="flex flex-wrap gap-2"><Button variant="secondary" onClick={() => setShowQr(true)}><Icon name="grid" size={18} />View QR code</Button><Button variant="secondary" onClick={() => setShowHistory(true)}><Icon name="grid" size={18} />History</Button><Button variant="secondary" onClick={() => setShowRewards(true)}><Icon name="gift" size={18} />Manage rewards</Button><Button variant="secondary" onClick={openCardEditor}><Icon name="card" size={18} />Edit loyalty card</Button><Button variant="secondary" onClick={openBroadcast}><Icon name="bell" size={18} />Send notification</Button><Button onClick={() => setShowAdd(true)}><Icon name="plus" size={18} />Add customer</Button></div>
         </div>
 
         <section className="stats-grid">
@@ -883,6 +1005,23 @@ function BusinessDashboard({ onLogout, businesses, setBusinesses, customers, set
         <div className="business-code-label">Unique business code</div><code>{businessQrCode}</code>
         <div className="qr-security-note"><Icon name="check" size={16} />This QR code belongs only to {merchant.name}.</div>
       </section></div>}
+      {showBroadcast && <div className="modal-backdrop card-editor-backdrop" onMouseDown={() => setShowBroadcast(false)}><section className="broadcast-dialog" onMouseDown={(event) => event.stopPropagation()}>
+        <div className="flex items-start justify-between"><div><div className="page-kicker">Member communication</div><div className="mt-2 text-2xl font-extrabold tracking-[-.04em] text-[#123b30]">Send a notification</div><p className="mt-2 text-sm text-[#73827d]">Reach opted-in members of {merchant.name}. Up to 3 broadcasts are allowed every 24 hours.</p></div><button className="icon-button" onClick={() => setShowBroadcast(false)} aria-label="Close">×</button></div>
+        <div className="broadcast-audience"><Icon name="users" size={18} /><div><b>{broadcastAudience} eligible member{broadcastAudience === 1 ? "" : "s"}</b><span>Customers control promotional notifications in their own settings.</span></div></div>
+        <form onSubmit={sendBroadcast} className="broadcast-grid">
+          <div>
+            <label className="field-label">Title <span>{broadcastTitle.length}/60</span><input required maxLength={60} className="field" value={broadcastTitle} onChange={(event) => setBroadcastTitle(event.target.value)} placeholder="Weekend reward bonus" /></label>
+            <label className="field-label mt-5">Message <span>{broadcastBody.length}/180</span><textarea required maxLength={180} className="field min-h-28 resize-none" value={broadcastBody} onChange={(event) => setBroadcastBody(event.target.value)} placeholder="Earn double points this Saturday at our store." /></label>
+            <Button disabled={broadcastBusy || broadcastAudience === 0} type="submit" className="mt-5 w-full justify-center"><Icon name="bell" size={17} />{broadcastBusy ? "Queuing…" : "Send to members"}</Button>
+            {broadcastMessage && <div className="broadcast-message" role="status">{broadcastMessage}</div>}
+          </div>
+          <div>
+            <div className="text-xs font-extrabold uppercase tracking-[.12em] text-[#83908c]">Notification preview</div>
+            <div className="push-preview"><img src="/icons/perklyn-192.png" alt="" /><div><small>Perklyn · now</small><b>{broadcastTitle || "Your notification title"}</b><span>{broadcastBody || "Your message will appear here."}</span></div></div>
+            <div className="recent-campaigns"><b>Recent sends</b>{broadcastCampaigns.length === 0 ? <span>No campaigns sent yet.</span> : broadcastCampaigns.slice(0, 3).map((campaign) => <div key={campaign.id}><span><b>{campaign.title}</b><small>{campaign.eligibleRecipients} members · {campaign.status}</small></span><em>{new Intl.DateTimeFormat("en", { dateStyle: "medium" }).format(new Date(campaign.createdAt))}</em></div>)}</div>
+          </div>
+        </form>
+      </section></div>}
       {showSettings && <SettingsDialog onClose={() => setShowSettings(false)} />}
       {showVerify && <div className="modal-backdrop card-editor-backdrop" onMouseDown={() => setShowVerify(false)}><form className="verify-dialog" onSubmit={verifyClaim} onMouseDown={(event) => event.stopPropagation()}>
         <div className="flex items-start justify-between"><div><div className="page-kicker">In-store redemption</div><div className="mt-2 text-2xl font-extrabold tracking-[-.04em] text-[#123b30]">Verify claim code</div><p className="mt-2 text-sm text-[#73827d]">Enter the code shown on the customer’s phone. Codes are valid for 24 hours and can only be used once.</p></div><button type="button" className="icon-button" onClick={() => setShowVerify(false)}>×</button></div>
@@ -897,6 +1036,7 @@ function BusinessDashboard({ onLogout, businesses, setBusinesses, customers, set
           { label: "View QR code", description: "Show your unique customer join code", icon: "grid", onClick: () => setShowQr(true) },
           { label: "Customer history", description: "Review issued and claimed points", icon: "grid", onClick: () => setShowHistory(true) },
           { label: "Manage rewards", description: "Add or edit customer rewards", icon: "gift", onClick: () => setShowRewards(true) },
+          { label: "Send notification", description: "Message opted-in loyalty members", icon: "bell", onClick: openBroadcast },
           { label: "Edit loyalty card", description: "Change your card name, color, and logo", icon: "card", onClick: openCardEditor },
           { label: "Add customer", description: "Connect a customer to your business", icon: "plus", onClick: () => setShowAdd(true) },
           { label: "Verify claim code", description: "Confirm a customer reward in store", icon: "check", onClick: () => { setVerifyResult(null); setShowVerify(true); } },
@@ -907,7 +1047,7 @@ function BusinessDashboard({ onLogout, businesses, setBusinesses, customers, set
   );
 }
 
-function CustomerDashboard({ onLogout, businesses, setBusinesses, directory, claims, setClaims, setActivities, profile }: { onLogout: () => void; businesses: Business[]; setBusinesses: React.Dispatch<React.SetStateAction<Business[]>>; directory: Business[]; claims: Claim[]; setClaims: React.Dispatch<React.SetStateAction<Claim[]>>; setActivities: React.Dispatch<React.SetStateAction<Activity[]>>; profile?: Profile }) {
+function CustomerDashboard({ onLogout, onNotifications, unreadCount, notificationBusinessId, businesses, setBusinesses, directory, claims, setClaims, setActivities, profile }: { onLogout: () => void; onNotifications: () => void; unreadCount: number; notificationBusinessId: number | null; businesses: Business[]; setBusinesses: React.Dispatch<React.SetStateAction<Business[]>>; directory: Business[]; claims: Claim[]; setClaims: React.Dispatch<React.SetStateAction<Claim[]>>; setActivities: React.Dispatch<React.SetStateAction<Activity[]>>; profile?: Profile }) {
   const safeProfile: Profile = profile && typeof profile.name === "string"
     ? profile
     : { name: "Perklyn member", phone: "Phone not set", isNew: false };
@@ -919,6 +1059,11 @@ function CustomerDashboard({ onLogout, businesses, setBusinesses, directory, cla
   const [claimingRewardId, setClaimingRewardId] = useState<number | null>(null);
   const total = useMemo(() => businesses.reduce((sum, item) => sum + item.points, 0), [businesses]);
   const businessClaims = selected ? claims.filter((claim) => claim.businessId === selected.id) : [];
+  useEffect(() => {
+    if (!notificationBusinessId) return;
+    const business = businesses.find((item) => item.id === notificationBusinessId);
+    if (business) setSelected(business);
+  }, [businesses, notificationBusinessId]);
   const claimReward = async (reward: Reward) => {
     if (!selected || selected.points < reward.points) return;
     const businessId = selected.id;
@@ -981,7 +1126,7 @@ function CustomerDashboard({ onLogout, businesses, setBusinesses, directory, cla
   };
   return (
     <div className="min-h-screen bg-[#f5f8f6]">
-      <DashboardHeader title="My loyalty wallet" subtitle="Customer portal" onLogout={onLogout} onSettings={() => setShowSettings(true)} customer floating />
+      <DashboardHeader title="My loyalty wallet" subtitle="Customer portal" onLogout={onLogout} onSettings={() => setShowSettings(true)} onNotifications={onNotifications} unreadCount={unreadCount} customer floating />
       <main className="dashboard-main">
         <section className="wallet-hero">
           <div className="relative z-10 max-w-[35rem]"><div className="eyebrow text-[#eadb9d]">Your reward wallet</div><div className="mt-4 text-[clamp(2.3rem,4vw,3.8rem)] font-extrabold leading-none tracking-[-0.055em]">Welcome, {safeProfile.name.split(" ")[0]}.</div><p className="mt-5 text-[#c8d8d2]">{safeProfile.isNew ? "Your new wallet is ready for its first business connection." : "Your favorite places are all connected to this number."}</p><div className="mt-6 flex items-center gap-3 text-sm font-bold"><span className="rounded-full bg-white/10 px-4 py-2">{safeProfile.phone}</span><span className="rounded-full bg-[#d9bd61] px-4 py-2 text-[#133b30]">{total.toLocaleString()} points</span></div></div>
@@ -1108,6 +1253,92 @@ export default function App() {
   const [backendReady, setBackendReady] = useState(false);
   const [loading, setLoading] = useState(true);
   const [passwordRecovery, setPasswordRecovery] = useState(() => window.location.hash.includes("type=recovery") || window.location.search.includes("type=recovery"));
+  const [notifications, setNotifications] = useState<PerklynNotification[]>([]);
+  const [notificationPreferences, setNotificationPreferences] = useState<NotificationPreferences | null>(null);
+  const [unreadCount, setUnreadCount] = useState(0);
+  const [showNotifications, setShowNotifications] = useState(false);
+  const [notificationBusy, setNotificationBusy] = useState(false);
+  const [notificationMessage, setNotificationMessage] = useState("");
+  const [notificationPermission, setNotificationPermission] = useState(() => getNotificationPermission());
+  const [showNotificationPrompt, setShowNotificationPrompt] = useState(false);
+  const [notificationBusinessId, setNotificationBusinessId] = useState<number | null>(null);
+
+  const loadNotifications = async () => {
+    const result = await apiRequest<{ notifications: PerklynNotification[]; unreadCount: number }>("/notifications?limit=30");
+    setNotifications(result.notifications);
+    setUnreadCount(result.unreadCount);
+    return result.notifications;
+  };
+
+  const enableNotifications = async () => {
+    setNotificationBusy(true);
+    setNotificationMessage("");
+    try {
+      await subscribeCurrentDevice();
+      const result = await apiRequest<{ preferences: NotificationPreferences }>("/notification-preferences");
+      setNotificationPreferences({ ...result.preferences, pushEnabled: true });
+      setNotificationPermission(getNotificationPermission());
+      setShowNotificationPrompt(false);
+      setNotificationMessage("Notifications are enabled on this device.");
+    } catch (error) {
+      setNotificationPermission(getNotificationPermission());
+      setNotificationMessage(error instanceof Error ? error.message : "Unable to enable notifications.");
+    } finally {
+      setNotificationBusy(false);
+    }
+  };
+
+  const disableNotifications = async () => {
+    setNotificationBusy(true);
+    setNotificationMessage("");
+    try {
+      await unsubscribeCurrentDevice();
+      setNotificationPreferences((current) => current ? { ...current, pushEnabled: false } : current);
+      setNotificationMessage("Notifications are turned off on this device.");
+    } catch (error) {
+      setNotificationMessage(error instanceof Error ? error.message : "Unable to turn off notifications.");
+    } finally {
+      setNotificationBusy(false);
+    }
+  };
+
+  const updateNotificationPreference = async (field: keyof NotificationPreferences, value: boolean) => {
+    if (!notificationPreferences) return;
+    const next = { ...notificationPreferences, [field]: value };
+    setNotificationPreferences(next);
+    try {
+      const result = await apiRequest<{ preferences: NotificationPreferences }>("/notification-preferences", {
+        method: "PUT",
+        body: JSON.stringify({ [field]: value }),
+      });
+      setNotificationPreferences(result.preferences);
+    } catch (error) {
+      setNotificationPreferences(notificationPreferences);
+      setNotificationMessage(error instanceof Error ? error.message : "Unable to save notification settings.");
+    }
+  };
+
+  const openNotification = async (notification: PerklynNotification) => {
+    if (!notification.readAt) {
+      setNotifications((items) => items.map((item) => item.id === notification.id ? { ...item, readAt: new Date().toISOString() } : item));
+      setUnreadCount((count) => Math.max(0, count - 1));
+      apiRequest(`/notifications/${notification.id}/read`, { method: "POST" }).catch(() => loadNotifications());
+    }
+    if (notification.businessId) setNotificationBusinessId(notification.businessId);
+    setShowNotifications(false);
+    window.history.replaceState({}, document.title, window.location.pathname);
+  };
+
+  const readAllNotifications = async () => {
+    const readAt = new Date().toISOString();
+    setNotifications((items) => items.map((item) => ({ ...item, readAt: item.readAt ?? readAt })));
+    setUnreadCount(0);
+    try {
+      await apiRequest("/notifications/read-all", { method: "POST" });
+    } catch {
+      await loadNotifications();
+    }
+  };
 
   const loadAccount = async () => {
     const result = await apiRequest<{
@@ -1181,6 +1412,49 @@ export default function App() {
     }, 500);
     return () => window.clearTimeout(timer);
   }, [activities, backendReady, businessList, claims, customers, portal]);
+
+  useEffect(() => {
+    if (!backendReady || !activeRole) return;
+    let cancelled = false;
+    const initializeNotifications = async () => {
+      try {
+        const [preferences, inbox, subscribed] = await Promise.all([
+          apiRequest<{ preferences: NotificationPreferences }>("/notification-preferences"),
+          apiRequest<{ notifications: PerklynNotification[]; unreadCount: number }>("/notifications?limit=30"),
+          currentDeviceIsSubscribed(),
+        ]);
+        if (cancelled) return;
+        setNotificationPreferences({ ...preferences.preferences, pushEnabled: subscribed });
+        setNotifications(inbox.notifications);
+        setUnreadCount(inbox.unreadCount);
+        setNotificationPermission(getNotificationPermission());
+        const dismissedAt = Number(localStorage.getItem("perklyn-notification-prompt-dismissed") ?? 0);
+        if (isPushSupported() && getNotificationPermission() === "default" && Date.now() - dismissedAt > 7 * 24 * 60 * 60 * 1000) setShowNotificationPrompt(true);
+        const notificationId = new URLSearchParams(window.location.search).get("notification");
+        const linked = notificationId ? inbox.notifications.find((item) => item.id === notificationId) : null;
+        if (linked) {
+          setShowNotifications(true);
+          if (linked.businessId) setNotificationBusinessId(linked.businessId);
+          if (!linked.readAt) {
+            apiRequest(`/notifications/${linked.id}/read`, { method: "POST" }).catch(() => undefined);
+            setNotifications((items) => items.map((item) => item.id === linked.id ? { ...item, readAt: new Date().toISOString() } : item));
+            setUnreadCount((count) => Math.max(0, count - 1));
+          }
+        }
+      } catch (error) {
+        if (!cancelled) console.error("Unable to initialize notifications", error);
+      }
+    };
+    initializeNotifications();
+    const refresh = () => loadNotifications().catch(() => undefined);
+    const timer = window.setInterval(refresh, 20_000);
+    window.addEventListener("focus", refresh);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+      window.removeEventListener("focus", refresh);
+    };
+  }, [activeRole, backendReady]);
 
   useEffect(() => {
     if (!backendReady || activeRole !== "customer") return;
@@ -1277,12 +1551,24 @@ export default function App() {
     setClaims([]);
     setActivities([]);
     setCustomers([]);
+    setNotifications([]);
+    setUnreadCount(0);
+    setNotificationPreferences(null);
+    setShowNotifications(false);
+    setShowNotificationPrompt(false);
     setPortal("signin");
   };
 
   if (passwordRecovery) return <PasswordReset onComplete={() => { setPasswordRecovery(false); setPortal("signin"); }} />;
   if (loading) return <div className="min-h-screen grid place-items-center bg-[#f5f8f6]"><Brand /><div className="fixed mt-20 text-sm font-bold text-[#6f817a]">Synchronizing Perklyn…</div></div>;
-  if (portal === "business" && activeRole === "business") return <BusinessDashboard businesses={businessList} setBusinesses={setBusinessList} customers={customers} setCustomers={setCustomers} activities={activities} setActivities={setActivities} profile={profile} onCustomerAdded={registerPendingCustomer} onCustomerChanged={registerPendingCustomer} onLogout={logout} />;
-  if (portal === "customer" && activeRole === "customer") return <CustomerDashboard businesses={businessList} setBusinesses={setBusinessList} directory={businessDirectory} claims={claims} setClaims={setClaims} setActivities={setActivities} profile={profile} onLogout={logout} />;
-  return <SignIn onEnter={enterAccount} />;
+  const dashboard = portal === "business" && activeRole === "business"
+    ? <BusinessDashboard businesses={businessList} setBusinesses={setBusinessList} customers={customers} setCustomers={setCustomers} activities={activities} setActivities={setActivities} profile={profile} onCustomerAdded={registerPendingCustomer} onCustomerChanged={registerPendingCustomer} onLogout={logout} onNotifications={() => { setNotificationMessage(""); setShowNotifications(true); loadNotifications().catch(() => undefined); }} unreadCount={unreadCount} />
+    : portal === "customer" && activeRole === "customer"
+      ? <CustomerDashboard businesses={businessList} setBusinesses={setBusinessList} directory={businessDirectory} claims={claims} setClaims={setClaims} setActivities={setActivities} profile={profile} onLogout={logout} onNotifications={() => { setNotificationMessage(""); setShowNotifications(true); loadNotifications().catch(() => undefined); }} unreadCount={unreadCount} notificationBusinessId={notificationBusinessId} />
+      : <SignIn onEnter={enterAccount} />;
+  return <>
+    {dashboard}
+    {showNotifications && activeRole && <NotificationCenter role={activeRole} notifications={notifications} unreadCount={unreadCount} preferences={notificationPreferences} permission={notificationPermission} busy={notificationBusy} message={notificationMessage} onClose={() => setShowNotifications(false)} onEnable={enableNotifications} onDisable={disableNotifications} onPreference={updateNotificationPreference} onOpenNotification={openNotification} onReadAll={readAllNotifications} />}
+    {showNotificationPrompt && activeRole && <NotificationPrompt busy={notificationBusy} onEnable={enableNotifications} onDismiss={() => { localStorage.setItem("perklyn-notification-prompt-dismissed", String(Date.now())); setShowNotificationPrompt(false); }} />}
+  </>;
 }

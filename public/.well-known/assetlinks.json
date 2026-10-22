@@ -1,8 +1,14 @@
-[{
-      "relation": ["delegate_permission/common.handle_all_urls"],
-      "target": {
-        "namespace": "android_app",
-        "package_name": "in.perklyn.app",
-        "sha256_cert_fingerprints": ["EB:09:53:BC:9C:C4:E3:B0:AE:66:39:51:C6:13:4C:4E:E4:01:2C:EB:E2:9B:94:A1:36:BA:A1:2E:BC:F8:2B:EF"]
-      }
-    }]
+[
+  {
+    "relation": [
+      "delegate_permission/common.handle_all_urls"
+    ],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "in.perklyn.app",
+      "sha256_cert_fingerprints": [
+        "EB:09:53:BC:9C:C4:E3:B0:AE:66:39:51:C6:13:4C:4E:E4:01:2C:EB:E2:9B:94:A1:36:BA:A1:2E:BC:F8:2B:EF"
+      ]
+    }
+  }
+]

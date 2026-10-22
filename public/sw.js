@@ -1,4 +1,4 @@
-const CACHE_NAME = "perklyn-app-v1";
+const CACHE_NAME = "perklyn-app-v2";
 const APP_SHELL = [
   "/",
   "/manifest.webmanifest",
@@ -48,5 +48,42 @@ self.addEventListener("fetch", (event) => {
         if (request.mode === "navigate") return caches.match("/");
         return Response.error();
       }),
+  );
+});
+
+self.addEventListener("push", (event) => {
+  let payload = {};
+  try {
+    payload = event.data?.json() ?? {};
+  } catch {
+    payload = { title: "Perklyn", body: "You have a new notification." };
+  }
+  const title = String(payload.title || "Perklyn");
+  const body = String(payload.body || "You have a new notification.");
+  const id = String(payload.id || Date.now());
+  event.waitUntil(self.registration.showNotification(title, {
+    body,
+    icon: "/icons/perklyn-192.png",
+    badge: "/icons/perklyn-192.png",
+    tag: String(payload.tag || `perklyn-${id}`),
+    data: {
+      url: String(payload.url || `/?notification=${id}`),
+      notificationId: id,
+    },
+  }));
+});
+
+self.addEventListener("notificationclick", (event) => {
+  event.notification.close();
+  const destination = new URL(event.notification.data?.url || "/", self.location.origin).href;
+  event.waitUntil(
+    clients.matchAll({ type: "window", includeUncontrolled: true }).then(async (windows) => {
+      const existing = windows.find((client) => new URL(client.url).origin === self.location.origin);
+      if (existing) {
+        await existing.navigate(destination);
+        return existing.focus();
+      }
+      return clients.openWindow(destination);
+    }),
   );
 });

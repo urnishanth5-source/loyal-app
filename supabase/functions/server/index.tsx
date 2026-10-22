@@ -2,6 +2,7 @@ import { Hono } from "npm:hono";
 import { cors } from "npm:hono/cors";
 import { logger } from "npm:hono/logger";
 import { createClient } from "jsr:@supabase/supabase-js@2.49.8";
+import webpush from "npm:web-push@3.6.7";
 import * as kv from "./kv_store.tsx";
 
 const app = new Hono();
@@ -30,9 +31,165 @@ const checkRateLimit = async (bucket: string, identifier: string, limit: number,
   return true;
 };
 
+type NotificationCategory = "loyaltyActivity" | "businessUpdates" | "businessOperations";
+type NotificationPayload = {
+  type: "points_changed" | "reward_claimed" | "reward_verified" | "member_joined" | "business_broadcast";
+  category: NotificationCategory;
+  title: string;
+  body: string;
+  businessId?: number;
+  businessName?: string;
+  claimCode?: string;
+  data?: Record<string, string | number | boolean>;
+};
+
+const notificationDefaults = (role: string) => ({
+  pushEnabled: false,
+  loyaltyActivity: role === "customer",
+  businessUpdates: role === "customer",
+  businessOperations: role === "business",
+  updatedAt: new Date().toISOString(),
+});
+
+const getNotificationPreferences = async (userId: string, role: string) => ({
+  ...notificationDefaults(role),
+  ...(await kv.get(`notification-preferences:${userId}`) ?? {}),
+});
+
+const hashText = async (value: string) => {
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value));
+  return Array.from(new Uint8Array(digest)).map((byte) => byte.toString(16).padStart(2, "0")).join("");
+};
+
+const resolveCustomerUser = async (phone: string) => {
+  const login = await kv.get(`login:customer:${normalizePhone(phone)}`);
+  return login?.userId ? { userId: String(login.userId) } : null;
+};
+
+const saveInboxNotification = async (userId: string, payload: NotificationPayload) => {
+  const id = crypto.randomUUID();
+  const createdAt = new Date().toISOString();
+  const key = `notification:${userId}:${Date.now()}:${id}`;
+  const notification = { id, userId, ...payload, readAt: null, createdAt, _key: key };
+  await kv.set(key, notification);
+  const retained = await kv.getByPrefix(`notification:${userId}:`);
+  const overflow = retained.sort((a: any, b: any) => String(b.createdAt).localeCompare(String(a.createdAt))).slice(100).filter((item: any) => item._key);
+  if (overflow.length > 0) background(Promise.all(overflow.map((item: any) => kv.del(item._key))));
+  return notification;
+};
+
+const configureWebPush = () => {
+  const publicKey = Deno.env.get("VAPID_PUBLIC_KEY");
+  const privateKey = Deno.env.get("VAPID_PRIVATE_KEY");
+  const subject = Deno.env.get("VAPID_SUBJECT") || "https://www.perklyn.in";
+  if (!publicKey || !privateKey) return false;
+  webpush.setVapidDetails(subject, publicKey, privateKey);
+  return true;
+};
+
+const sendPushesToUser = async (userId: string, notification: any) => {
+  if (!configureWebPush()) return { attempted: 0, delivered: 0, removed: 0 };
+  const subscriptions = await kv.getByPrefix(`push-subscription:${userId}:`);
+  let delivered = 0;
+  let removed = 0;
+  for (let start = 0; start < subscriptions.length; start += 25) {
+    const batch = subscriptions.slice(start, start + 25);
+    const results = await Promise.allSettled(batch.map(async (stored: any) => {
+      try {
+        await webpush.sendNotification(
+          { endpoint: stored.endpoint, keys: stored.keys },
+          JSON.stringify({
+            id: notification.id,
+            type: notification.type,
+            title: notification.title,
+            body: notification.body,
+            tag: `perklyn-${notification.id}`,
+            url: `/?notification=${notification.id}`,
+            businessId: notification.businessId,
+            createdAt: notification.createdAt,
+          }),
+        );
+        delivered += 1;
+      } catch (error: any) {
+        if (error?.statusCode === 404 || error?.statusCode === 410) {
+          await kv.del(`push-subscription:${userId}:${stored.id}`);
+          removed += 1;
+          return;
+        }
+        throw error;
+      }
+    }));
+    results.forEach((result) => {
+      if (result.status === "rejected") console.log("Push delivery failed", result.reason?.statusCode ?? "unknown");
+    });
+  }
+  return { attempted: subscriptions.length, delivered, removed };
+};
+
+const dispatchNotification = async (userId: string, role: string, payload: NotificationPayload) => {
+  const preferences = await getNotificationPreferences(userId, role);
+  if (!preferences[payload.category]) return null;
+  const notification = await saveInboxNotification(userId, payload);
+  const delivery = preferences.pushEnabled
+    ? await sendPushesToUser(userId, notification)
+    : { attempted: 0, delivered: 0, removed: 0 };
+  return { notification, delivery };
+};
+
+const background = (promise: Promise<unknown>) => {
+  const runtime = (globalThis as any).EdgeRuntime;
+  if (runtime?.waitUntil) runtime.waitUntil(promise);
+  else promise.catch((error) => console.log("Background notification failed", error));
+};
+
+const indexBusinessMember = async (businessId: number, customer: { phone: string; name?: string }, customerUserId?: string) => {
+  const normalizedPhone = normalizePhone(customer.phone);
+  if (!normalizedPhone) return;
+  const key = `business-member:${businessId}:${normalizedPhone}`;
+  const existing = await kv.get(key);
+  await kv.set(key, {
+    businessId,
+    phone: customer.phone,
+    normalizedPhone,
+    customerName: customer.name ?? existing?.customerName ?? "Perklyn member",
+    customerUserId: customerUserId ?? existing?.customerUserId,
+    joinedAt: existing?.joinedAt ?? new Date().toISOString(),
+  });
+};
+
 const ownedBusiness = async (businessId: number, userId: string) => {
   const business = await kv.get(`business:${businessId}`);
   return business?._ownerId === userId ? business : null;
+};
+
+const getBusinessAudience = async (businessId: number) => {
+  const indexed = await kv.getByPrefix(`business-member:${businessId}:`);
+  const members = new Map<string, any>();
+  indexed.forEach((member: any) => members.set(member.normalizedPhone, member));
+  const legacy = await kv.getByPrefix("pending:");
+  await Promise.all(legacy.filter((membership: any) => Number(membership.business?.id) === businessId).map(async (membership: any) => {
+    const normalizedPhone = normalizePhone(membership.phone);
+    if (members.has(normalizedPhone) && members.get(normalizedPhone)?.customerUserId) return;
+    const login = await resolveCustomerUser(membership.phone);
+    const member = {
+      businessId,
+      phone: membership.phone,
+      normalizedPhone,
+      customerName: membership.customerName,
+      customerUserId: login?.userId,
+      joinedAt: membership.updatedAt ?? new Date().toISOString(),
+    };
+    members.set(normalizedPhone, member);
+    await indexBusinessMember(businessId, { phone: membership.phone, name: membership.customerName }, login?.userId);
+  }));
+  const audience = [];
+  for (const member of members.values()) {
+    const userId = member.customerUserId ?? (await resolveCustomerUser(member.phone))?.userId;
+    if (!userId) continue;
+    const preferences = await getNotificationPreferences(userId, "customer");
+    if (preferences.businessUpdates) audience.push({ ...member, customerUserId: userId });
+  }
+  return audience;
 };
 
 app.use("*", logger(console.log));
@@ -109,7 +266,198 @@ app.post(`${prefix}/login`, async (c) => {
     error = legacyResult.error;
   }
   if (error || !data.session) return c.json({ error: "The phone number or password is incorrect." }, 401);
+  if (!login && data.user) {
+    await kv.set(`login:${role}:${phone}`, { email: data.user.email, userId: data.user.id });
+    if (role === "customer") {
+      const memberships = await kv.getByPrefix(`pending:${phone}:`);
+      await Promise.all(memberships.map((membership: any) => indexBusinessMember(Number(membership.business?.id), { phone: suppliedPhone, name: membership.customerName }, data.user.id)));
+    }
+  }
   return c.json({ accessToken: data.session.access_token, refreshToken: data.session.refresh_token });
+});
+
+app.get(`${prefix}/push/config`, async (c) => {
+  const user = await authenticatedUser(c);
+  if (!user) return c.json({ error: "Unauthorized" }, 401);
+  const publicKey = Deno.env.get("VAPID_PUBLIC_KEY");
+  return c.json({ publicKey: publicKey ?? "", supported: Boolean(publicKey && Deno.env.get("VAPID_PRIVATE_KEY")) });
+});
+
+app.post(`${prefix}/push/subscriptions`, async (c) => {
+  const user = await authenticatedUser(c);
+  if (!user) return c.json({ error: "Unauthorized" }, 401);
+  if (!await checkRateLimit("push-subscription", user.id, 20, 60 * 60 * 1000)) return c.json({ error: "Too many subscription changes. Try again later." }, 429);
+  const { subscription, userAgent = "" } = await c.req.json();
+  const endpoint = String(subscription?.endpoint ?? "");
+  const p256dh = String(subscription?.keys?.p256dh ?? "");
+  const auth = String(subscription?.keys?.auth ?? "");
+  if (!endpoint.startsWith("https://") || endpoint.length > 4096 || !p256dh || p256dh.length > 512 || !auth || auth.length > 256) return c.json({ error: "Invalid push subscription." }, 400);
+  const id = await hashText(endpoint);
+  await kv.set(`push-subscription:${user.id}:${id}`, {
+    id,
+    userId: user.id,
+    endpoint,
+    keys: { p256dh, auth },
+    userAgent: String(userAgent).slice(0, 300),
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  });
+  const profile = await kv.get(`profile:${user.id}`) ?? user.user_metadata ?? {};
+  const preferences = await getNotificationPreferences(user.id, profile.role);
+  await kv.set(`notification-preferences:${user.id}`, { ...preferences, pushEnabled: true, updatedAt: new Date().toISOString() });
+  return c.json({ subscribed: true });
+});
+
+app.delete(`${prefix}/push/subscriptions`, async (c) => {
+  const user = await authenticatedUser(c);
+  if (!user) return c.json({ error: "Unauthorized" }, 401);
+  const { endpoint = "" } = await c.req.json();
+  if (!endpoint) return c.json({ error: "Subscription endpoint is required." }, 400);
+  await kv.del(`push-subscription:${user.id}:${await hashText(String(endpoint))}`);
+  const remaining = await kv.getByPrefix(`push-subscription:${user.id}:`);
+  if (remaining.length === 0) {
+    const profile = await kv.get(`profile:${user.id}`) ?? user.user_metadata ?? {};
+    const preferences = await getNotificationPreferences(user.id, profile.role);
+    await kv.set(`notification-preferences:${user.id}`, { ...preferences, pushEnabled: false, updatedAt: new Date().toISOString() });
+  }
+  return c.json({ subscribed: remaining.length > 0 });
+});
+
+app.get(`${prefix}/notification-preferences`, async (c) => {
+  const user = await authenticatedUser(c);
+  if (!user) return c.json({ error: "Unauthorized" }, 401);
+  const profile = await kv.get(`profile:${user.id}`) ?? user.user_metadata ?? {};
+  return c.json({ preferences: await getNotificationPreferences(user.id, profile.role) });
+});
+
+app.put(`${prefix}/notification-preferences`, async (c) => {
+  const user = await authenticatedUser(c);
+  if (!user) return c.json({ error: "Unauthorized" }, 401);
+  const profile = await kv.get(`profile:${user.id}`) ?? user.user_metadata ?? {};
+  const current = await getNotificationPreferences(user.id, profile.role);
+  const body = await c.req.json();
+  const next: any = { ...current };
+  for (const field of ["pushEnabled", "loyaltyActivity", "businessUpdates", "businessOperations"]) {
+    if (typeof body[field] === "boolean") next[field] = body[field];
+  }
+  next.updatedAt = new Date().toISOString();
+  await kv.set(`notification-preferences:${user.id}`, next);
+  return c.json({ preferences: next });
+});
+
+app.get(`${prefix}/notifications`, async (c) => {
+  const user = await authenticatedUser(c);
+  if (!user) return c.json({ error: "Unauthorized" }, 401);
+  const limit = Math.min(50, Math.max(1, Number(c.req.query("limit") ?? 30)));
+  const all = await kv.getByPrefix(`notification:${user.id}:`);
+  const sorted = all.sort((a: any, b: any) => String(b.createdAt).localeCompare(String(a.createdAt)));
+  const notifications = sorted.slice(0, limit).map(({ _key, userId, ...notification }: any) => notification);
+  return c.json({ notifications, unreadCount: sorted.filter((item: any) => !item.readAt).length });
+});
+
+app.post(`${prefix}/notifications/:id/read`, async (c) => {
+  const user = await authenticatedUser(c);
+  if (!user) return c.json({ error: "Unauthorized" }, 401);
+  const id = c.req.param("id");
+  const all = await kv.getByPrefix(`notification:${user.id}:`);
+  const notification = all.find((item: any) => item.id === id);
+  if (!notification?._key) return c.json({ error: "Notification not found." }, 404);
+  notification.readAt = notification.readAt ?? new Date().toISOString();
+  await kv.set(notification._key, notification);
+  const { _key, userId, ...safeNotification } = notification;
+  return c.json({ notification: safeNotification });
+});
+
+app.post(`${prefix}/notifications/read-all`, async (c) => {
+  const user = await authenticatedUser(c);
+  if (!user) return c.json({ error: "Unauthorized" }, 401);
+  const all = await kv.getByPrefix(`notification:${user.id}:`);
+  const unread = all.filter((item: any) => !item.readAt && item._key);
+  if (unread.length > 0) await kv.mset(unread.map((item: any) => item._key), unread.map((item: any) => ({ ...item, readAt: new Date().toISOString() })));
+  return c.json({ updated: unread.length });
+});
+
+app.get(`${prefix}/business/:id/notification-audience`, async (c) => {
+  const user = await authenticatedUser(c);
+  if (!user) return c.json({ error: "Unauthorized" }, 401);
+  const businessId = Number(c.req.param("id"));
+  if (!await ownedBusiness(businessId, user.id)) return c.json({ error: "You do not own this business." }, 403);
+  const audience = await getBusinessAudience(businessId);
+  return c.json({ eligibleRecipients: audience.length });
+});
+
+app.get(`${prefix}/business/:id/campaigns`, async (c) => {
+  const user = await authenticatedUser(c);
+  if (!user) return c.json({ error: "Unauthorized" }, 401);
+  const businessId = Number(c.req.param("id"));
+  if (!await ownedBusiness(businessId, user.id)) return c.json({ error: "You do not own this business." }, 403);
+  const campaigns = await kv.getByPrefix(`notification-campaign:${businessId}:`);
+  return c.json({ campaigns: campaigns.sort((a: any, b: any) => String(b.createdAt).localeCompare(String(a.createdAt))).slice(0, 10) });
+});
+
+app.post(`${prefix}/business/:id/broadcast`, async (c) => {
+  const user = await authenticatedUser(c);
+  if (!user) return c.json({ error: "Unauthorized" }, 401);
+  const businessId = Number(c.req.param("id"));
+  const business = await ownedBusiness(businessId, user.id);
+  if (!business) return c.json({ error: "You do not own this business." }, 403);
+  if (!await checkRateLimit("broadcast-submit", user.id, 10, 60 * 60 * 1000)) return c.json({ error: "Too many notification requests. Try again later." }, 429);
+  const body = await c.req.json();
+  const title = String(body.title ?? "").trim();
+  const message = String(body.body ?? "").trim();
+  if (!title || !message) return c.json({ error: "A title and message are required." }, 400);
+  if (title.length > 60 || message.length > 180) return c.json({ error: "Keep the title under 60 characters and the message under 180 characters." }, 400);
+  const campaigns = await kv.getByPrefix(`notification-campaign:${businessId}:`);
+  const oneDayAgo = Date.now() - 24 * 60 * 60 * 1000;
+  const recent = campaigns.filter((campaign: any) => new Date(campaign.createdAt).getTime() >= oneDayAgo);
+  if (recent.length >= 3) return c.json({ error: "This business has reached its limit of 3 notifications in 24 hours." }, 429);
+  if (campaigns.some((campaign: any) => campaign.title === title && campaign.body === message && Date.now() - new Date(campaign.createdAt).getTime() < 60_000)) return c.json({ error: "This notification was already submitted." }, 409);
+  const audience = await getBusinessAudience(businessId);
+  if (audience.length === 0) return c.json({ error: "There are no opted-in members to notify yet." }, 400);
+  const id = crypto.randomUUID();
+  const createdAt = new Date().toISOString();
+  const campaignKey = `notification-campaign:${businessId}:${Date.now()}:${id}`;
+  const campaign = {
+    id,
+    businessId,
+    ownerId: user.id,
+    title,
+    body: message,
+    status: "queued",
+    eligibleRecipients: audience.length,
+    inboxCreated: 0,
+    pushesAttempted: 0,
+    pushesDelivered: 0,
+    invalidSubscriptionsRemoved: 0,
+    createdAt,
+  };
+  await kv.set(campaignKey, campaign);
+  background((async () => {
+    const totals = { inboxCreated: 0, pushesAttempted: 0, pushesDelivered: 0, invalidSubscriptionsRemoved: 0 };
+    await kv.set(campaignKey, { ...campaign, status: "sending" });
+    for (const member of audience) {
+      const result = await dispatchNotification(member.customerUserId, "customer", {
+        type: "business_broadcast",
+        category: "businessUpdates",
+        title,
+        body: message,
+        businessId,
+        businessName: business.name,
+      });
+      if (!result) continue;
+      totals.inboxCreated += 1;
+      totals.pushesAttempted += result.delivery.attempted;
+      totals.pushesDelivered += result.delivery.delivered;
+      totals.invalidSubscriptionsRemoved += result.delivery.removed;
+    }
+    await kv.set(campaignKey, {
+      ...campaign,
+      ...totals,
+      status: totals.inboxCreated === audience.length ? "complete" : "partial",
+      completedAt: new Date().toISOString(),
+    });
+  })());
+  return c.json({ campaignId: id, eligibleRecipients: audience.length, status: "queued" }, 202);
 });
 
 app.get(`${prefix}/me`, async (c) => {
@@ -150,6 +498,8 @@ app.post(`${prefix}/pending-membership`, async (c) => {
     reward: customer.reward ?? "Welcome reward",
     updatedAt: new Date().toISOString(),
   });
+  const customerLogin = await resolveCustomerUser(customer.phone);
+  await indexBusinessMember(Number(business.id), { phone: customer.phone, name: customer.name }, customerLogin?.userId);
   return c.json({ saved: true });
 });
 
@@ -162,7 +512,8 @@ app.post(`${prefix}/adjust-points`, async (c) => {
   const { businessId, phone, delta } = await c.req.json();
   const amount = Number(delta);
   if (!Number.isInteger(amount) || amount === 0 || Math.abs(amount) > 1_000_000) return c.json({ error: "Enter a valid point amount." }, 400);
-  if (!await ownedBusiness(Number(businessId), user.id)) return c.json({ error: "You do not own this business." }, 403);
+  const business = await ownedBusiness(Number(businessId), user.id);
+  if (!business) return c.json({ error: "You do not own this business." }, 403);
   const membershipKey = `pending:${normalizePhone(phone)}:${businessId}`;
   const membership = await kv.get(membershipKey);
   if (!membership || membership.ownerId !== user.id) return c.json({ error: "This customer is not connected to your business." }, 404);
@@ -176,6 +527,18 @@ app.post(`${prefix}/adjust-points`, async (c) => {
   ownerState.customers = (ownerState.customers ?? []).map((customer: any) => normalizePhone(customer.phone) === normalizePhone(phone) ? { ...customer, points: balance } : customer);
   ownerState.activities = [transaction, ...(ownerState.activities ?? [])];
   await kv.set(`state:${user.id}`, ownerState);
+  const customerLogin = await resolveCustomerUser(phone);
+  if (customerLogin) {
+    background(dispatchNotification(customerLogin.userId, "customer", {
+      type: "points_changed",
+      category: "loyaltyActivity",
+      title: amount > 0 ? `Points added at ${business.name}` : `Points updated at ${business.name}`,
+      body: `${Math.abs(amount).toLocaleString()} points ${amount > 0 ? "added" : "deducted"}. New balance: ${balance.toLocaleString()} points.`,
+      businessId: Number(businessId),
+      businessName: business.name,
+      data: { balance, delta: amount },
+    }));
+  }
   return c.json({ balance, transaction });
 });
 
@@ -233,6 +596,19 @@ app.post(`${prefix}/join-business`, async (c) => {
         await kv.set(`state:${business._ownerId}`, ownerState);
       }
     }
+    await indexBusinessMember(Number(business.id), { phone: profile.phone, name: profile.name }, user.id);
+    if (business._ownerId) {
+      background(dispatchNotification(String(business._ownerId), "business", {
+        type: "member_joined",
+        category: "businessOperations",
+        title: "New Perklyn member",
+        body: `${profile.name} joined ${business.name}.`,
+        businessId: Number(business.id),
+        businessName: business.name,
+      }));
+    }
+  } else {
+    await indexBusinessMember(Number(business.id), { phone: profile.phone, name: profile.name }, user.id);
   }
   return c.json({ business, membership: existing ?? { points: 0, reward: "Welcome reward" } });
 });
@@ -279,6 +655,16 @@ app.post(`${prefix}/claim-reward`, async (c) => {
       occurredAt: new Date().toISOString(),
     }, ...(ownerState.activities ?? [])];
     await kv.set(`state:${membership.ownerId}`, ownerState);
+    background(dispatchNotification(String(membership.ownerId), "business", {
+      type: "reward_claimed",
+      category: "businessOperations",
+      title: "Reward claim ready",
+      body: `${profile.name} claimed ${title}. Open Perklyn to verify it in store.`,
+      businessId: Number(businessId),
+      businessName: business?.name,
+      claimCode,
+      data: { rewardTitle: title, points },
+    }));
   }
   return c.json({ balance: membership.points, rewardId, claimCode, expiresAt });
 });
@@ -315,6 +701,19 @@ app.post(`${prefix}/verify-claim`, async (c) => {
     occurredAt: new Date().toISOString(),
   }, ...(ownerState.activities ?? [])];
   await kv.set(`state:${user.id}`, ownerState);
+  const business = await kv.get(`business:${claim.businessId}`);
+  const customerLogin = await resolveCustomerUser(claim.phone);
+  if (customerLogin) {
+    background(dispatchNotification(customerLogin.userId, "customer", {
+      type: "reward_verified",
+      category: "loyaltyActivity",
+      title: "Reward verified",
+      body: `${business?.name ?? "The business"} verified your ${claim.title}.`,
+      businessId: Number(claim.businessId),
+      businessName: business?.name,
+      data: { rewardTitle: claim.title, status: "verified" },
+    }));
+  }
   return c.json({ claim });
 });
 

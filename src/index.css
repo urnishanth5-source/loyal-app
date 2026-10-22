@@ -2257,6 +2257,65 @@ body {
   }
 }
 
+.notification-button { position: relative; }
+.notification-button > span { position: absolute; top: -.3rem; right: -.35rem; min-width: 1.15rem; height: 1.15rem; display: grid; place-items: center; padding-inline: .25rem; border: 2px solid white; border-radius: 999px; background: #d4b95e; color: #123b30; font-size: .58rem; font-weight: 900; }
+.notification-backdrop { justify-content: flex-end; padding: 0; }
+.notification-center { width: min(34rem, 100%); height: 100%; overflow-y: auto; background: #fbfdfc; box-shadow: -1.5rem 0 4rem rgba(4, 37, 29, .2); padding: 2rem; }
+.notification-center-header, .notification-list-heading, .notification-device-card, .broadcast-audience { display: flex; align-items: center; justify-content: space-between; gap: 1rem; }
+.notification-device-card { margin-top: 1.75rem; border: 1px solid #dce8e2; border-radius: 1.2rem; background: linear-gradient(135deg, #edf7f2, #f9fbfa); padding: 1rem; }
+.notification-device-card > div, .notification-preferences label > span { display: grid; gap: .2rem; }
+.notification-device-card b, .notification-preferences b, .recent-campaigns b { color: #153d32; font-size: .86rem; }
+.notification-device-card span, .notification-preferences small, .recent-campaigns small { color: #70817b; font-size: .74rem; }
+.notification-warning, .notification-message, .broadcast-message { margin-top: .8rem; border-radius: .9rem; background: #fff6dc; color: #705910; padding: .8rem 1rem; font-size: .78rem; font-weight: 700; line-height: 1.45; }
+.notification-message, .broadcast-message { background: #edf7f2; color: #17624e; }
+.notification-preferences { margin-top: 1.4rem; border-block: 1px solid #e2eae6; padding-block: 1.2rem; }
+.notification-preferences label { display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin-top: 1rem; }
+.notification-preferences input { width: 1.1rem; height: 1.1rem; accent-color: #0d5946; }
+.notification-list-heading { margin-top: 1.4rem; color: #153d32; font-size: .9rem; }
+.notification-list-heading button { color: #0d5946; font-size: .74rem; font-weight: 800; }
+.notification-list { display: grid; gap: .65rem; margin-top: .85rem; }
+.notification-row { display: grid; grid-template-columns: 2.3rem 1fr auto; align-items: start; gap: .8rem; width: 100%; border: 1px solid #e2eae6; border-radius: 1rem; background: white; padding: .9rem; text-align: left; transition: border-color .18s ease, transform .18s ease; }
+.notification-row:hover { border-color: #9fc7b9; transform: translateY(-1px); }
+.notification-row.unread { background: #f2faf6; border-color: #b7d8cc; }
+.notification-row > i, .notification-empty > i, .notification-prompt > i { width: 2.3rem; height: 2.3rem; display: grid; place-items: center; border-radius: .8rem; background: #e3f2ec; color: #0d5946; }
+.notification-row > span { display: grid; gap: .2rem; }
+.notification-row b { color: #153d32; font-size: .84rem; }
+.notification-row small { color: #61736d; font-size: .76rem; line-height: 1.4; }
+.notification-row em { color: #91a09b; font-size: .66rem; font-style: normal; }
+.notification-row > strong { width: .5rem; height: .5rem; margin-top: .35rem; border-radius: 999px; background: #d4b95e; }
+.notification-empty { display: grid; justify-items: center; gap: .45rem; padding: 3rem 1rem; color: #72817c; text-align: center; }
+.notification-empty b { color: #153d32; }
+.notification-empty span { max-width: 18rem; font-size: .78rem; }
+.notification-prompt { position: fixed; z-index: 90; right: 1.5rem; bottom: 1.5rem; display: grid; grid-template-columns: auto minmax(12rem, 1fr) auto auto; align-items: center; gap: .9rem; width: min(43rem, calc(100vw - 3rem)); border: 1px solid rgba(255,255,255,.16); border-radius: 1.2rem; background: #073b30; box-shadow: 0 1.5rem 4rem rgba(2, 30, 23, .3); color: white; padding: .9rem; }
+.notification-prompt > i { background: rgba(255,255,255,.1); color: #e3ca72; }
+.notification-prompt > div { display: grid; gap: .15rem; }
+.notification-prompt b { font-size: .87rem; }
+.notification-prompt span { color: #bdd0c9; font-size: .73rem; }
+.prompt-dismiss { padding-inline: .5rem; color: #d8e4df; font-size: .74rem; font-weight: 800; }
+.broadcast-dialog { width: min(58rem, calc(100vw - 2rem)); max-height: calc(100vh - 2rem); overflow-y: auto; border-radius: 1.5rem; background: #fbfdfc; box-shadow: 0 2rem 5rem rgba(5, 39, 30, .24); padding: 2rem; }
+.broadcast-audience { justify-content: flex-start; margin-top: 1.5rem; border-radius: 1rem; background: #edf7f2; color: #0d5946; padding: .9rem 1rem; }
+.broadcast-audience > div { display: grid; }
+.broadcast-audience span { color: #6d8079; font-size: .73rem; }
+.broadcast-grid { display: grid; grid-template-columns: 1fr .9fr; gap: 2rem; margin-top: 1.5rem; }
+.broadcast-grid .field-label > span { float: right; color: #8a9893; font-size: .67rem; }
+.push-preview { display: flex; gap: .8rem; margin-top: .75rem; border-radius: 1.1rem; background: #19211f; color: white; padding: 1rem; box-shadow: 0 1rem 2rem rgba(9, 41, 32, .18); }
+.push-preview img { width: 2.5rem; height: 2.5rem; border-radius: .7rem; }
+.push-preview > div { display: grid; gap: .12rem; }
+.push-preview small, .push-preview span { color: #b9c4c0; font-size: .7rem; }
+.push-preview b { font-size: .82rem; }
+.recent-campaigns { display: grid; gap: .65rem; margin-top: 1.4rem; }
+.recent-campaigns > div { display: flex; align-items: center; justify-content: space-between; gap: 1rem; border-top: 1px solid #e3eae7; padding-top: .7rem; }
+.recent-campaigns > div > span { display: grid; }
+.recent-campaigns em { color: #899791; font-size: .65rem; font-style: normal; }
+
+@media (max-width: 700px) {
+  .notification-center { padding: 1.2rem; }
+  .notification-prompt { right: .8rem; bottom: 5.6rem; grid-template-columns: auto 1fr auto; width: calc(100vw - 1.6rem); }
+  .notification-prompt .prompt-dismiss { grid-column: 2 / -1; justify-self: start; }
+  .broadcast-dialog { padding: 1.25rem; }
+  .broadcast-grid { grid-template-columns: 1fr; }
+}
+
 /* Raised-center glass dock */
 .bottom-island-wrap {
   bottom: 1rem;
