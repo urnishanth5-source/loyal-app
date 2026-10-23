@@ -414,6 +414,7 @@ function SignIn({ onEnter }: { onEnter: (role: Role, isNew: boolean, details: { 
   const [showPassword, setShowPassword] = useState(false);
   const [authMessage, setAuthMessage] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [mascotBlink, setMascotBlink] = useState(0);
   const submit = async (event: FormEvent) => {
     event.preventDefault();
     setAuthorizationError("");
@@ -442,7 +443,7 @@ function SignIn({ onEnter }: { onEnter: (role: Role, isNew: boolean, details: { 
   };
 
   return (
-    <main className="signin-shell">
+    <main className="signin-shell" onPointerDown={() => setMascotBlink((blink) => blink + 1)}>
       <section className="signin-story">
         <div className="absolute inset-0 opacity-15 bg-[radial-gradient(circle_at_70%_20%,#e3ca72_0,transparent_34%),radial-gradient(circle_at_15%_80%,#4f8d78_0,transparent_38%)]" />
         <div className="relative z-10 flex h-full max-w-[46rem] flex-col justify-between">
@@ -468,6 +469,23 @@ function SignIn({ onEnter }: { onEnter: (role: Role, isNew: boolean, details: { 
       <section className="signin-form-panel">
         <div className="w-full max-w-[31rem]">
           <div className="mb-10 lg:hidden"><Brand /></div>
+          {!showRecovery && !showSignup && <div className="login-mascot" aria-hidden="true">
+            <svg viewBox="0 0 240 220" role="presentation">
+              <defs>
+                <linearGradient id="ghost-body" x1="48" y1="25" x2="177" y2="194" gradientUnits="userSpaceOnUse">
+                  <stop stopColor="#ffffff" />
+                  <stop offset=".55" stopColor="#eaf8f5" />
+                  <stop offset="1" stopColor="#72e3d7" />
+                </linearGradient>
+              </defs>
+              <path className="simple-ghost-body" d="M120 14c-48 0-84 35-84 82v60c0 19 9 34 22 34 13 0 17-18 30-18 14 0 16 29 32 29 17 0 19-29 33-29 13 0 17 18 30 18 13 0 22-15 22-34V96c0-47-37-82-85-82Z" fill="url(#ghost-body)" />
+              <path className="simple-ghost-highlight" d="M66 73c7-23 24-37 46-42" />
+              <g key={mascotBlink} className="simple-ghost-eye">
+                <rect x="88" y="76" width="21" height="42" rx="10.5" fill="#25b9ad" transform="rotate(-24 98.5 97)" />
+                <rect x="132" y="69" width="21" height="42" rx="10.5" fill="#25b9ad" transform="rotate(-24 142.5 90)" />
+              </g>
+            </svg>
+          </div>}
           <div className={`text-3xl font-extrabold tracking-[-0.04em] ${showRecovery || showSignup ? "text-[#123b30]" : "text-white"}`}>{showRecovery ? "Reset your password" : showSignup ? "Create your account" : "Welcome back"}</div>
           <p className="mt-3 text-[#687a74]">{showRecovery ? "We’ll email you a secure link to choose a new password." : showSignup ? "Join Perklyn and start earning more." : "Sign in to continue to Perklyn."}</p>
 
@@ -533,7 +551,7 @@ function DashboardHeader({ title, subtitle, onLogout, onSettings, onNotification
     <header className={`dashboard-header ${floating ? "floating-header" : ""}`}>
       <div className="top-brand-island"><Brand light /></div>
       <div className="header-identity hidden flex-1 items-center justify-center md:flex">
-        <div className="text-center"><div className="font-extrabold text-[#123b30]">{title}</div><div className="text-xs text-[#7c8b86]">{subtitle}</div></div>
+        <div className="text-center"><div className={`font-extrabold ${customer ? "text-white" : "text-[#123b30]"}`}>{title}</div><div className="text-xs text-[#7c8b86]">{subtitle}</div></div>
       </div>
       <div className="header-actions flex items-center gap-2">
         <button className="icon-button notification-button" onClick={onNotifications} aria-label={`Notifications${unreadCount ? `, ${unreadCount} unread` : ""}`}><Icon name="bell" size={20} />{unreadCount > 0 && <span>{unreadCount > 9 ? "9+" : unreadCount}</span>}</button>

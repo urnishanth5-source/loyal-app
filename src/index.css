@@ -75,6 +75,49 @@ button {
   padding: 4rem clamp(2rem, 7vw, 7rem);
 }
 
+.login-mascot {
+  position: relative;
+  width: min(62vw, 14rem);
+  aspect-ratio: 1;
+  margin: -2.7rem auto -1.2rem;
+  filter: drop-shadow(0 1.1rem 1.3rem rgb(0 238 210 / 20%));
+  animation: mascot-float 4s ease-in-out infinite;
+}
+
+.login-mascot svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.simple-ghost-body {
+  stroke: rgb(116 255 237 / 72%);
+  stroke-width: 2;
+}
+
+.simple-ghost-highlight {
+  fill: none;
+  stroke: rgb(255 255 255 / 75%);
+  stroke-linecap: round;
+  stroke-width: 8;
+}
+
+.simple-ghost-eye {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: mascot-eye-blink .42s ease-in-out both;
+}
+
+@keyframes mascot-eye-blink {
+  0%, 20%, 100% { transform: scaleY(1); }
+  45%, 55% { transform: scaleY(.08); }
+}
+
+@keyframes mascot-float {
+  0%, 100% { transform: translateY(0) rotate(-1deg); }
+  50% { transform: translateY(-.45rem) rotate(1deg); }
+}
+
 .auth-toast {
   position: fixed;
   z-index: 80;
