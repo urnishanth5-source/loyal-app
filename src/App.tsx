@@ -529,7 +529,7 @@ function SignIn({ onEnter }: { onEnter: (role: Role, isNew: boolean, details: { 
               </label>
             )}
             {!showSignup && <div className="flex items-center justify-between text-sm"><label className="flex items-center gap-2 text-[#687a74]"><input type="checkbox" className="accent-[#0d5946]" />Remember me</label><button type="button" onClick={() => { setShowRecovery(true); setAuthMessage(""); }} className="font-bold text-[#0d5946]">Forgot password?</button></div>}
-            <Button disabled={submitting} type="submit" className="w-full justify-center py-4">{submitting ? "Please wait…" : showSignup ? `Create ${role} account` : `Sign in as ${role}`} {!submitting && <Icon name="arrow" size={18} />}</Button>
+            <Button disabled={submitting} type="submit" className={`w-full justify-center py-4 ${showSignup ? "" : "auth-signin-button"}`}>{submitting ? "Please wait…" : showSignup ? `Create ${role} account` : `Sign in as ${role}`} {!submitting && <Icon name="arrow" size={18} />}</Button>
           </form>
           <div className="mt-8 text-center text-sm text-[#687a74]">
             {showSignup ? "Already have an account? " : "New to Perklyn? "}

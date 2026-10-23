@@ -492,6 +492,46 @@ button {
   box-shadow: 0 .8rem 1.6rem rgb(13 89 70 / 22%);
 }
 
+.auth-signin-button {
+  border: 1px solid rgb(139 255 234 / 88%);
+  background: linear-gradient(110deg, #087b68, #0dcfb2 52%, #087b68);
+  background-size: 180% 100%;
+  box-shadow:
+    0 0 0 1px rgb(45 255 218 / 18%),
+    0 0 1rem rgb(17 242 205 / 50%),
+    0 .8rem 1.8rem rgb(0 81 63 / 30%),
+    inset 0 1px 0 rgb(255 255 255 / 35%);
+  animation: auth-signin-blink 1.65s ease-in-out infinite;
+}
+
+.auth-signin-button:hover {
+  background: linear-gradient(110deg, #07927a, #18e4c4 52%, #07927a);
+  background-size: 180% 100%;
+}
+
+.auth-signin-button:disabled {
+  animation: none;
+}
+
+@keyframes auth-signin-blink {
+  0%, 100% {
+    background-position: 100% 0;
+    box-shadow:
+      0 0 0 1px rgb(45 255 218 / 14%),
+      0 0 .7rem rgb(17 242 205 / 35%),
+      0 .8rem 1.8rem rgb(0 81 63 / 25%),
+      inset 0 1px 0 rgb(255 255 255 / 28%);
+  }
+  50% {
+    background-position: 0 0;
+    box-shadow:
+      0 0 0 2px rgb(106 255 229 / 32%),
+      0 0 1.7rem rgb(25 255 216 / 78%),
+      0 1rem 2.2rem rgb(0 102 79 / 38%),
+      inset 0 1px 0 rgb(255 255 255 / 48%);
+  }
+}
+
 .btn-secondary {
   color: #245448;
   border: 1px solid #d9e5e0;
