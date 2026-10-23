@@ -52,6 +52,7 @@ type Business = {
   reward: string;
   rewards: Reward[];
   progress: number;
+  transactions?: Activity[];
 };
 
 type Reward = {
@@ -97,6 +98,7 @@ type ServerMembership = {
   business: Business;
   points: number;
   reward: string;
+  transactions?: Activity[];
 };
 
 function mergeMembershipBusinesses(current: Business[], memberships: ServerMembership[]) {
@@ -105,6 +107,7 @@ function mergeMembershipBusinesses(current: Business[], memberships: ServerMembe
     points: membership.points,
     reward: membership.reward,
     progress: 0,
+    transactions: membership.transactions ?? [],
   }));
   const merged = [
     ...current.map((business) => pendingBusinesses.find((pending) => pending.id === business.id) ?? business),
@@ -945,6 +948,311 @@ function NfcClaimDialog({ portal, onContinue, onClaimed, onSwitchAccount }: { po
   </section></div>;
 }
 
+type RfidCustomer = Customer & { maskedPhone?: string };
+type RfidCard = {
+  id: string;
+  customerId: string;
+  customerName: string;
+  maskedIdentifier: string;
+  maskedPhone?: string;
+  status: "active" | "blocked" | "replaced";
+  activatedAt: string;
+  lastScannedAt?: string | null;
+};
+type RfidScan = {
+  card: { id: string; maskedIdentifier: string; status: string; lastScannedAt: string };
+  customer: { id: string; name: string; maskedPhone: string; points: number };
+  rewards: Array<Reward & { available?: boolean }>;
+  lastTransaction?: Activity | null;
+};
+
+function RfidWorkspace({ business, onClose, onDataChanged }: { business: Business; onClose: () => void; onDataChanged: () => void }) {
+  type View = "home" | "activate" | "scan" | "add" | "rewards" | "redeem" | "success";
+  const [view, setView] = useState<View>("home");
+  const [cards, setCards] = useState<RfidCard[]>([]);
+  const [cardFilter, setCardFilter] = useState("");
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [customerQuery, setCustomerQuery] = useState("");
+  const [customerResults, setCustomerResults] = useState<RfidCustomer[]>([]);
+  const [selectedCustomer, setSelectedCustomer] = useState<RfidCustomer | null>(null);
+  const [readerMode, setReaderMode] = useState<"keyboard" | "simulated">("keyboard");
+  const [readerStatus, setReaderStatus] = useState<"disconnected" | "ready" | "waiting" | "detected" | "failed">("disconnected");
+  const [simulatedIdentifier, setSimulatedIdentifier] = useState("");
+  const [detectedIdentifier, setDetectedIdentifier] = useState("");
+  const [scanned, setScanned] = useState<RfidScan | null>(null);
+  const [replaceCardId, setReplaceCardId] = useState("");
+  const [pointsToAdd, setPointsToAdd] = useState("");
+  const [purchaseAmount, setPurchaseAmount] = useState("");
+  const [transactionNote, setTransactionNote] = useState("");
+  const [selectedReward, setSelectedReward] = useState<(Reward & { available?: boolean }) | null>(null);
+  const [message, setMessage] = useState("");
+  const [success, setSuccess] = useState<{ title: string; detail: string } | null>(null);
+  const [busy, setBusy] = useState(false);
+  const scanBuffer = useRef("");
+  const operationId = useRef(crypto.randomUUID());
+
+  const loadCards = async () => {
+    const result = await apiRequest<{ cards: RfidCard[] }>(`/rfid/cards?businessId=${business.id}`);
+    setCards(result.cards);
+  };
+  useEffect(() => {
+    loadCards().catch((error) => setMessage(error instanceof Error ? error.message : "Unable to load RFID cards."));
+  }, [business.id]);
+
+  const processIdentifier = async (identifier: string) => {
+    const cleaned = identifier.trim().replace(/[^A-Za-z0-9:_-]/g, "").toUpperCase();
+    if (cleaned.length < 4) {
+      setReaderStatus("failed");
+      setMessage("Scan failed. The reader did not return a valid card identifier.");
+      return;
+    }
+    setDetectedIdentifier(cleaned);
+    setReaderStatus("detected");
+    if (view !== "scan") return;
+    setBusy(true);
+    try {
+      const result = await apiRequest<RfidScan & { status: string }>("/rfid/cards/scan", {
+        method: "POST",
+        body: JSON.stringify({ businessId: business.id, cardIdentifier: cleaned }),
+      });
+      setScanned(result);
+      setMessage("");
+      await loadCards();
+    } catch (error) {
+      setScanned(null);
+      setMessage(error instanceof Error ? error.message : "Card scan failed.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  useEffect(() => {
+    if (readerMode !== "keyboard" || readerStatus !== "waiting") return;
+    const receiveReaderInput = (event: KeyboardEvent) => {
+      if (event.key === "Enter") {
+        const value = scanBuffer.current;
+        scanBuffer.current = "";
+        if (value) processIdentifier(value);
+        return;
+      }
+      if (event.key.length === 1 && /^[A-Za-z0-9:_-]$/.test(event.key)) scanBuffer.current += event.key;
+    };
+    window.addEventListener("keydown", receiveReaderInput);
+    return () => window.removeEventListener("keydown", receiveReaderInput);
+  }, [readerMode, readerStatus, view]);
+
+  const startReader = () => {
+    scanBuffer.current = "";
+    setDetectedIdentifier("");
+    setMessage("");
+    setReaderStatus("waiting");
+  };
+  const presentSimulatedCard = () => {
+    if (readerMode !== "simulated") return;
+    processIdentifier(simulatedIdentifier);
+  };
+  const searchCustomers = async (event?: FormEvent) => {
+    event?.preventDefault();
+    setBusy(true);
+    setMessage("");
+    try {
+      const query = new URLSearchParams({ businessId: String(business.id), query: customerQuery });
+      const result = await apiRequest<{ customers: RfidCustomer[] }>(`/rfid/customers?${query.toString()}`);
+      setCustomerResults(result.customers);
+      if (result.customers.length === 0) setMessage("No customer belonging to this business was found.");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Customer lookup failed.");
+    } finally {
+      setBusy(false);
+    }
+  };
+  const activateCard = async (reassign = false) => {
+    if (!selectedCustomer || !detectedIdentifier) return;
+    setBusy(true);
+    setMessage("");
+    try {
+      await apiRequest("/rfid/cards/activate", {
+        method: "POST",
+        body: JSON.stringify({
+          businessId: business.id,
+          customerId: selectedCustomer.id,
+          cardIdentifier: detectedIdentifier,
+          replaceCardId: replaceCardId || undefined,
+          reassign,
+        }),
+      });
+      setSuccess({ title: "Loyalty card activated successfully.", detail: `${selectedCustomer.name} can now use card ${detectedIdentifier.slice(0, 3)}••••${detectedIdentifier.slice(-3)}.` });
+      setView("success");
+      setReplaceCardId("");
+      await loadCards();
+    } catch (error) {
+      const text = error instanceof Error ? error.message : "Unable to activate this card.";
+      if ((text.includes("already linked") || text.includes("Secure reassignment")) && window.confirm(`${text} Reassign it to ${selectedCustomer.name}?`)) {
+        setBusy(false);
+        activateCard(true);
+        return;
+      }
+      setMessage(text);
+    } finally {
+      setBusy(false);
+    }
+  };
+  const blockCard = async (card: RfidCard) => {
+    if (!window.confirm(`Block ${card.maskedIdentifier}? It will no longer be accepted for transactions.`)) return;
+    try {
+      await apiRequest(`/rfid/cards/${card.id}/block`, { method: "POST", body: JSON.stringify({ businessId: business.id }) });
+      await loadCards();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Unable to block this card.");
+    }
+  };
+  const chooseCardCustomer = async (card: RfidCard, replacing = false) => {
+    setCustomerQuery(card.customerId);
+    setBusy(true);
+    try {
+      const query = new URLSearchParams({ businessId: String(business.id), query: card.customerId });
+      const result = await apiRequest<{ customers: RfidCustomer[] }>(`/rfid/customers?${query.toString()}`);
+      const customer = result.customers.find((item) => String(item.id) === String(card.customerId));
+      if (!customer) throw new Error("The linked customer could not be found.");
+      setSelectedCustomer(customer);
+      setCustomerResults(result.customers);
+      setDetectedIdentifier("");
+      setReaderStatus("disconnected");
+      setReplaceCardId(replacing ? card.id : "");
+      setView("activate");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Customer lookup failed.");
+    } finally {
+      setBusy(false);
+    }
+  };
+  const addPoints = async (event: FormEvent) => {
+    event.preventDefault();
+    if (!scanned) return;
+    const amount = Number(pointsToAdd);
+    setBusy(true);
+    setMessage("");
+    try {
+      const result = await apiRequest<{ balance: number }>("/rfid/transactions/add", {
+        method: "POST",
+        body: JSON.stringify({
+          businessId: business.id,
+          cardId: scanned.card.id,
+          points: amount,
+          purchaseAmount: purchaseAmount || undefined,
+          note: transactionNote,
+          operationId: operationId.current,
+        }),
+      });
+      setScanned({ ...scanned, customer: { ...scanned.customer, points: result.balance } });
+      setSuccess({ title: "Points added successfully.", detail: `${amount.toLocaleString()} points added. New balance: ${result.balance.toLocaleString()} points.` });
+      setView("success");
+      onDataChanged();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Unable to add points.");
+    } finally {
+      setBusy(false);
+    }
+  };
+  const redeemReward = async () => {
+    if (!scanned || !selectedReward) return;
+    setBusy(true);
+    setMessage("");
+    try {
+      const result = await apiRequest<{ balance: number }>("/rfid/transactions/redeem", {
+        method: "POST",
+        body: JSON.stringify({
+          businessId: business.id,
+          cardId: scanned.card.id,
+          rewardId: selectedReward.id,
+          operationId: operationId.current,
+        }),
+      });
+      setScanned({ ...scanned, customer: { ...scanned.customer, points: result.balance } });
+      setSuccess({ title: "Reward redeemed successfully.", detail: `${selectedReward.title} redeemed for ${selectedReward.points.toLocaleString()} points. Remaining balance: ${result.balance.toLocaleString()} points.` });
+      setView("success");
+      onDataChanged();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Unable to redeem this reward.");
+    } finally {
+      setBusy(false);
+    }
+  };
+  const openHome = () => {
+    setView("home");
+    setMessage("");
+    setSuccess(null);
+    setReaderStatus("disconnected");
+    setDetectedIdentifier("");
+  };
+  const openActivate = () => {
+    setView("activate");
+    setSelectedCustomer(null);
+    setCustomerResults([]);
+    setCustomerQuery("");
+    setDetectedIdentifier("");
+    setReplaceCardId("");
+    setReaderStatus("disconnected");
+    setMessage("");
+  };
+  const openScan = () => {
+    setView("scan");
+    setScanned(null);
+    setDetectedIdentifier("");
+    setReaderStatus("disconnected");
+    setMessage("");
+  };
+  const readerPanel = (
+    <div className="rfid-reader-panel">
+      <div className="rfid-reader-head"><i><Icon name="nfc" size={23} /></i><div><b>USB RFID reader</b><span>{readerMode === "simulated" ? "Simulated reader mode — testing only" : readerStatus === "waiting" ? "Keyboard-emulation input armed" : readerStatus === "detected" ? "Card detected" : readerStatus === "failed" ? "Scan failed" : "Reader connection cannot be detected by the browser"}</span></div><em className={readerStatus}>{readerStatus === "waiting" ? "Waiting" : readerStatus === "detected" ? "Detected" : readerMode === "simulated" ? "Simulated" : "Not verified"}</em></div>
+      <div className="rfid-mode-switch"><button className={readerMode === "keyboard" ? "active" : ""} onClick={() => { setReaderMode("keyboard"); setReaderStatus("disconnected"); }}>Keyboard reader</button><button className={readerMode === "simulated" ? "active" : ""} onClick={() => { setReaderMode("simulated"); setReaderStatus("ready"); }}>Simulated reader</button></div>
+      {readerMode === "simulated" && <label className="field-label">Simulated card identifier<input className="field" value={simulatedIdentifier} onChange={(event) => setSimulatedIdentifier(event.target.value)} placeholder="e.g. TK4100-104928" /></label>}
+      <Button disabled={busy || (readerMode === "simulated" && simulatedIdentifier.trim().length < 4)} className="w-full justify-center" onClick={readerMode === "simulated" ? presentSimulatedCard : startReader}><Icon name="nfc" size={18} />{readerMode === "simulated" ? "Present simulated card" : readerStatus === "waiting" ? "Waiting for RFID card…" : "Start scanning"}</Button>
+      <p>Tap or present the customer’s loyalty card to the reader. Most TK4100 USB readers enter the card ID as keyboard input followed by Enter.</p>
+    </div>
+  );
+  const visibleCards = cards.filter((card) =>
+    (statusFilter === "all" || card.status === statusFilter) &&
+    `${card.customerName} ${card.customerId} ${card.maskedIdentifier}`.toLowerCase().includes(cardFilter.toLowerCase())
+  );
+
+  return <div className="rfid-workspace">
+    <header className="rfid-workspace-header"><button className="rfid-back" onClick={view === "home" ? onClose : openHome}><Icon name="back" size={19} />{view === "home" ? "Dashboard" : "RFID Cards"}</button><div><Brand light /></div><button className="icon-button" onClick={onClose} aria-label="Close">×</button></header>
+    <main className="rfid-workspace-main">
+      {view === "home" && <>
+        <div className="rfid-page-heading"><div><div className="page-kicker">Physical loyalty cards</div><div className="page-title">RFID Cards</div><p>Activate, scan, and manage TK4100-compatible loyalty cards for {business.name}.</p></div></div>
+        <div className="rfid-action-grid">
+          <button onClick={openActivate}><i><Icon name="plus" size={25} /></i><span><b>Activate Card</b><small>Link a new physical card to an existing customer</small></span><Icon name="arrow" /></button>
+          <button onClick={openScan}><i><Icon name="nfc" size={25} /></i><span><b>Scan Card</b><small>Open a customer balance and loyalty actions</small></span><Icon name="arrow" /></button>
+        </div>
+        <section className="rfid-management">
+          <div className="rfid-management-toolbar"><div><b>Card management</b><span>{cards.length} registered card{cards.length === 1 ? "" : "s"}</span></div><label className="search-box"><Icon name="search" size={17} /><input value={cardFilter} onChange={(event) => setCardFilter(event.target.value)} placeholder="Search customer or card" /></label><select className="field" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}><option value="all">All statuses</option><option value="active">Active</option><option value="blocked">Blocked</option><option value="replaced">Replaced</option></select></div>
+          <div className="rfid-table-head"><span>Card</span><span>Customer</span><span>Activated</span><span>Status</span><span>Last scanned</span><span>Actions</span></div>
+          {visibleCards.length === 0 ? <div className="rfid-empty"><Icon name="card" size={25} /><b>No RFID cards found</b><span>Activate a card for an existing customer to see it here.</span></div> : visibleCards.map((card) => <div className="rfid-table-row" key={card.id}><span><b>{card.maskedIdentifier}</b><small>ID {card.id.slice(0, 8)}</small></span><span><b>{card.customerName}</b><small>Customer {card.customerId}</small></span><span>{new Intl.DateTimeFormat("en", { dateStyle: "medium" }).format(new Date(card.activatedAt))}</span><span><em className={`rfid-card-status ${card.status}`}>{card.status}</em></span><span>{card.lastScannedAt ? new Intl.DateTimeFormat("en", { dateStyle: "medium", timeStyle: "short" }).format(new Date(card.lastScannedAt)) : "Never"}</span><span className="rfid-row-actions"><button onClick={() => chooseCardCustomer(card)}>View customer</button>{card.status === "active" && <><button onClick={() => blockCard(card)}>Block</button><button onClick={() => chooseCardCustomer(card, true)}>Replace</button></>}</span></div>)}
+        </section>
+      </>}
+      {view === "activate" && <>
+        <div className="rfid-page-heading"><div><div className="page-kicker">{replaceCardId ? "Secure replacement" : "Card activation"}</div><div className="page-title">Activate Loyalty Card</div><p>Link one physical card to an existing customer in this business.</p></div></div>
+        <div className="rfid-two-column">
+          <section className="rfid-panel"><form onSubmit={searchCustomers}><label className="field-label">Find a customer<input className="field" value={customerQuery} onChange={(event) => setCustomerQuery(event.target.value)} placeholder="Customer ID, phone number, or name" /></label><Button disabled={busy || !customerQuery.trim()} type="submit" className="mt-3 w-full justify-center"><Icon name="search" size={17} />Search</Button></form>
+            <div className="rfid-customer-results">{customerResults.map((customer) => <button className={selectedCustomer?.id === customer.id ? "selected" : ""} key={customer.id} onClick={() => setSelectedCustomer(customer)}><i className="avatar">{customer.name.split(" ").map((part) => part[0]).join("")}</i><span><b>{customer.name}</b><small>ID {customer.id} · {customer.phone}</small></span><strong>{customer.points.toLocaleString()} pts</strong></button>)}</div>
+          </section>
+          <section className="rfid-panel">{selectedCustomer ? <><div className="rfid-selected-customer"><i className="avatar large">{selectedCustomer.name.split(" ").map((part) => part[0]).join("")}</i><div><span>Selected customer</span><b>{selectedCustomer.name}</b><small>ID {selectedCustomer.id} · {selectedCustomer.phone}</small></div><strong>{selectedCustomer.points.toLocaleString()} pts</strong></div>{readerPanel}{detectedIdentifier && <div className="rfid-confirm-card"><span>Detected card</span><code>{detectedIdentifier}</code><p>Confirm that this card should be linked to {selectedCustomer.name}.</p><Button disabled={busy} className="w-full justify-center" onClick={() => activateCard(false)}><Icon name="check" size={18} />{busy ? "Activating…" : replaceCardId ? "Activate replacement card" : "Activate Card"}</Button></div>}</> : <div className="rfid-empty"><Icon name="users" size={25} /><b>Select an existing customer</b><span>A customer must belong to {business.name} before a card can be activated.</span></div>}</section>
+        </div>
+      </>}
+      {view === "scan" && <>
+        <div className="rfid-page-heading"><div><div className="page-kicker">Card reader</div><div className="page-title">Scan Loyalty Card</div><p>Retrieve the customer’s business-specific balance and rewards.</p></div></div>
+        {!scanned ? <div className="rfid-scan-shell"><div className="rfid-scan-illustration"><Icon name="nfc" size={52} /><b>{readerStatus === "waiting" ? "Ready to scan" : "RFID loyalty card"}</b><span>{readerStatus === "waiting" ? "Present a card to the reader now" : "Start the reader when the customer is ready"}</span></div>{readerPanel}</div> : <section className="rfid-profile"><div className="rfid-profile-main"><i className="avatar large">{scanned.customer.name.split(" ").map((part) => part[0]).join("")}</i><div><span>Registered card detected</span><b>{scanned.customer.name}</b><small>Customer {scanned.customer.id} · {scanned.customer.maskedPhone}</small></div><div className="rfid-balance"><span>Current balance</span><strong>{scanned.customer.points.toLocaleString()}</strong><small>points</small></div></div><div className="rfid-profile-meta"><div><span>Card</span><b>{scanned.card.maskedIdentifier}</b></div><div><span>Available rewards</span><b>{scanned.rewards.filter((reward) => reward.available !== false && scanned.customer.points >= reward.points).length}</b></div><div><span>Last transaction</span><b>{scanned.lastTransaction?.description ?? "No transactions yet"}</b></div></div><div className="rfid-profile-actions"><Button onClick={() => { operationId.current = crypto.randomUUID(); setPointsToAdd(""); setPurchaseAmount(""); setTransactionNote(""); setView("add"); }}><Icon name="plus" size={18} />Add Points</Button><Button variant="secondary" onClick={() => setView("rewards")}><Icon name="gift" size={18} />Redeem Reward / Reduce Points</Button></div></section>}
+      </>}
+      {view === "add" && scanned && <section className="rfid-flow-card"><div className="page-kicker">RFID transaction</div><div className="page-title">Add Points</div><div className="rfid-flow-customer"><span>{scanned.customer.name}<small>Customer {scanned.customer.id}</small></span><strong>{scanned.customer.points.toLocaleString()} pts</strong></div><form onSubmit={addPoints}><label className="field-label">Points to Add<input required min="1" step="1" inputMode="numeric" type="number" className="field" value={pointsToAdd} onChange={(event) => setPointsToAdd(event.target.value)} placeholder="Enter a positive amount" /></label><label className="field-label">Purchase amount <span>Optional</span><input min="0" step=".01" inputMode="decimal" type="number" className="field" value={purchaseAmount} onChange={(event) => setPurchaseAmount(event.target.value)} placeholder="₹0.00" /></label><label className="field-label">Transaction note <span>Optional</span><textarea maxLength={180} className="field min-h-24 resize-none" value={transactionNote} onChange={(event) => setTransactionNote(event.target.value)} placeholder="Purchase or visit details" /></label><div className="rfid-balance-preview"><span>Current balance<b>{scanned.customer.points.toLocaleString()}</b></span><Icon name="arrow" /><span>New balance<b>{(scanned.customer.points + Math.max(0, Number(pointsToAdd) || 0)).toLocaleString()}</b></span></div><div className="rfid-form-actions"><Button variant="secondary" onClick={() => setView("scan")}>Cancel</Button><Button disabled={busy || !Number.isInteger(Number(pointsToAdd)) || Number(pointsToAdd) <= 0} type="submit">{busy ? "Adding…" : "Confirm Add Points"}</Button></div></form></section>}
+      {view === "rewards" && scanned && <section className="rfid-flow-card wide"><div className="page-kicker">Configured rewards</div><div className="page-title">Redeem Reward / Reduce Points</div><p>Select a reward created in the existing rewards manager. Point deductions cannot be entered manually.</p><div className="rfid-reward-grid">{scanned.rewards.length === 0 ? <div className="rfid-empty"><Icon name="gift" /><b>No rewards configured</b><span>Create rewards in Manage rewards before using RFID redemption.</span></div> : scanned.rewards.map((reward) => { const short = Math.max(0, reward.points - scanned.customer.points); const disabled = reward.available === false || short > 0; return <div className={`rfid-reward-card ${disabled ? "disabled" : ""}`} key={reward.id}><i><Icon name="gift" size={21} /></i><div><b>{reward.title}</b><p>{reward.description}</p><strong>{reward.points.toLocaleString()} points</strong>{reward.available === false ? <small>Unavailable</small> : short > 0 ? <small>{short.toLocaleString()} more points needed</small> : <small>Available</small>}</div><Button disabled={disabled} onClick={() => { operationId.current = crypto.randomUUID(); setSelectedReward(reward); setView("redeem"); }}>Select Reward</Button></div>; })}</div><Button variant="secondary" onClick={() => setView("scan")}>Back to customer</Button></section>}
+      {view === "redeem" && scanned && selectedReward && <section className="rfid-flow-card"><div className="page-kicker">Confirm redemption</div><div className="page-title">{selectedReward.title}</div><p>Deduct exactly the configured reward cost from {scanned.customer.name}.</p><div className="rfid-redemption-summary"><div><span>Current balance</span><b>{scanned.customer.points.toLocaleString()} points</b></div><div><span>Reward cost</span><b>−{selectedReward.points.toLocaleString()} points</b></div><div><span>Remaining balance</span><b>{(scanned.customer.points - selectedReward.points).toLocaleString()} points</b></div></div><div className="rfid-form-actions"><Button variant="secondary" onClick={() => setView("rewards")}>Cancel</Button><Button disabled={busy} onClick={redeemReward}>{busy ? "Redeeming…" : "Confirm Redemption"}</Button></div></section>}
+      {view === "success" && success && <section className="rfid-success"><i><Icon name="check" size={30} /></i><div className="page-title">{success.title}</div><p>{success.detail}</p><div><Button variant="secondary" onClick={openHome}>Manage cards</Button>{scanned && <Button onClick={openScan}>Scan another card</Button>}</div></section>}
+      {message && <div className="rfid-message" role="alert">{message}</div>}
+    </main>
+  </div>;
+}
+
 function BusinessDashboard({ onLogout, onNotifications, unreadCount, businesses, setBusinesses, customers, setCustomers, activities, setActivities, profile, onCustomerAdded, onCustomerChanged }: { onLogout: () => void; onNotifications: () => void; unreadCount: number; businesses: Business[]; setBusinesses: React.Dispatch<React.SetStateAction<Business[]>>; customers: Customer[]; setCustomers: React.Dispatch<React.SetStateAction<Customer[]>>; activities: Activity[]; setActivities: React.Dispatch<React.SetStateAction<Activity[]>>; profile?: Profile; onCustomerAdded: (customer: Customer, businessId: number) => void; onCustomerChanged: (customer: Customer, businessId: number) => void }) {
   const safeProfile: Profile = profile && typeof profile.name === "string"
     ? profile
@@ -960,6 +1268,7 @@ function BusinessDashboard({ onLogout, onNotifications, unreadCount, businesses,
   const [showVerify, setShowVerify] = useState(false);
   const [showBroadcast, setShowBroadcast] = useState(false);
   const [showNfc, setShowNfc] = useState(false);
+  const [showRfid, setShowRfid] = useState(false);
   const [broadcastTitle, setBroadcastTitle] = useState("");
   const [broadcastBody, setBroadcastBody] = useState("");
   const [broadcastAudience, setBroadcastAudience] = useState(0);
@@ -1172,7 +1481,7 @@ function BusinessDashboard({ onLogout, onNotifications, unreadCount, businesses,
       <main className="dashboard-main">
         <div className="flex flex-col justify-between gap-5 md:flex-row md:items-end">
           <div><div className="page-kicker">Business overview</div><div className="page-title">Good morning, {safeProfile.name.split(" ")[0]}.</div><p className="mt-2 text-[#6e7d77]">{safeProfile.isNew ? "Your new loyalty account is ready to set up." : "Here’s what’s happening with your loyalty community."}</p></div>
-          <div className="flex flex-wrap gap-2"><Button onClick={() => setShowNfc(true)}><Icon name="nfc" size={18} />Issue points by NFC</Button><Button variant="secondary" onClick={() => setShowQr(true)}><Icon name="grid" size={18} />View QR code</Button><Button variant="secondary" onClick={() => setShowHistory(true)}><Icon name="grid" size={18} />History</Button><Button variant="secondary" onClick={() => setShowRewards(true)}><Icon name="gift" size={18} />Manage rewards</Button><Button variant="secondary" onClick={openCardEditor}><Icon name="card" size={18} />Edit loyalty card</Button><Button variant="secondary" onClick={openBroadcast}><Icon name="bell" size={18} />Send notification</Button><Button onClick={() => setShowAdd(true)}><Icon name="plus" size={18} />Add customer</Button></div>
+          <div className="flex flex-wrap gap-2"><Button onClick={() => setShowRfid(true)}><Icon name="nfc" size={18} />RFID Cards</Button><Button variant="secondary" onClick={() => setShowNfc(true)}><Icon name="nfc" size={18} />Issue points by NFC</Button><Button variant="secondary" onClick={() => setShowQr(true)}><Icon name="grid" size={18} />View QR code</Button><Button variant="secondary" onClick={() => setShowHistory(true)}><Icon name="grid" size={18} />History</Button><Button variant="secondary" onClick={() => setShowRewards(true)}><Icon name="gift" size={18} />Manage rewards</Button><Button variant="secondary" onClick={openCardEditor}><Icon name="card" size={18} />Edit loyalty card</Button><Button variant="secondary" onClick={openBroadcast}><Icon name="bell" size={18} />Send notification</Button><Button onClick={() => setShowAdd(true)}><Icon name="plus" size={18} />Add customer</Button></div>
         </div>
 
         <section className="stats-grid">
@@ -1288,6 +1597,7 @@ function BusinessDashboard({ onLogout, onNotifications, unreadCount, businesses,
       </section></div>}
       {showSettings && <SettingsDialog onClose={() => setShowSettings(false)} />}
       {showNfc && <NfcManager businessId={merchant.id} onClose={() => setShowNfc(false)} onClaimed={syncNfcReporting} />}
+      {showRfid && <RfidWorkspace business={merchant} onClose={() => setShowRfid(false)} onDataChanged={syncNfcReporting} />}
       {showVerify && <div className="modal-backdrop card-editor-backdrop" onMouseDown={() => setShowVerify(false)}><form className="verify-dialog" onSubmit={verifyClaim} onMouseDown={(event) => event.stopPropagation()}>
         <div className="flex items-start justify-between"><div><div className="page-kicker">In-store redemption</div><div className="mt-2 text-2xl font-extrabold tracking-[-.04em] text-[#123b30]">Verify claim code</div><p className="mt-2 text-sm text-[#73827d]">Enter the code shown on the customer’s phone. Codes are valid for 24 hours and can only be used once.</p></div><button type="button" className="icon-button" onClick={() => setShowVerify(false)}>×</button></div>
         <label className="field-label mt-7">Customer claim code<input required className="field claim-code-input" value={verifyCode} onChange={(event) => setVerifyCode(event.target.value.replace(/[^a-zA-Z0-9]/g, "").toUpperCase())} placeholder="e.g. A1B2C3D4" maxLength={8} /></label>
@@ -1298,6 +1608,7 @@ function BusinessDashboard({ onLogout, onNotifications, unreadCount, businesses,
         portal="business"
         onLogout={onLogout}
         actions={[
+          { label: "RFID Cards", description: "Activate, scan, and manage physical loyalty cards", icon: "nfc", onClick: () => setShowRfid(true) },
           { label: "Issue points by NFC", description: "Create a secure five-minute point issue", icon: "nfc", onClick: () => setShowNfc(true) },
           { label: "View QR code", description: "Show your unique customer join code", icon: "grid", onClick: () => setShowQr(true) },
           { label: "Customer history", description: "Review issued and claimed points", icon: "grid", onClick: () => setShowHistory(true) },
@@ -1325,6 +1636,7 @@ function CustomerDashboard({ onLogout, onNotifications, unreadCount, notificatio
   const [claimingRewardId, setClaimingRewardId] = useState<number | null>(null);
   const total = useMemo(() => businesses.reduce((sum, item) => sum + item.points, 0), [businesses]);
   const businessClaims = selected ? claims.filter((claim) => claim.businessId === selected.id) : [];
+  const businessTransactions = selected?.transactions ?? [];
   useEffect(() => {
     if (!notificationBusinessId) return;
     const business = businesses.find((item) => item.id === notificationBusinessId);
@@ -1442,6 +1754,7 @@ function CustomerDashboard({ onLogout, onNotifications, unreadCount, notificatio
             <div className="text-sm font-extrabold text-[#153d32]">Claim history</div>
             {businessClaims.length === 0 ? <p className="empty-history">No rewards claimed from this business yet.</p> : businessClaims.map((claim) => <div className="history-row" key={claim.id}><i><Icon name="check" size={14} /></i><div><b>{claim.title}</b><small>{claim.claimedAt}{claim.claimCode ? ` · Code ${claim.claimCode}` : ""}</small></div><span>{claim.points} pts</span></div>)}
           </div>
+          {businessTransactions.length > 0 && <div className="claim-history"><div className="text-sm font-extrabold text-[#153d32]">Points activity</div>{businessTransactions.slice(0, 12).map((transaction) => <div className="history-row" key={transaction.id}><i><Icon name={transaction.type === "claimed" ? "gift" : "nfc"} size={14} /></i><div><b>{transaction.type === "claimed" ? transaction.description.replace(/^RFID reward redeemed:\s*/i, "Reward redeemed: ") : "Points added by loyalty card"}</b><small>{new Intl.DateTimeFormat("en", { dateStyle: "medium", timeStyle: "short" }).format(new Date(transaction.occurredAt))}</small></div><span>{transaction.type === "claimed" ? "−" : "+"}{transaction.points} pts</span></div>)}</div>}
         </div>
       </div>}
       {showScanner && <QrScannerModal onClose={() => setShowScanner(false)} onScan={joinBusiness} />}

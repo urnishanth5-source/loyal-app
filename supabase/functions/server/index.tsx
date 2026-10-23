@@ -221,6 +221,23 @@ const reconcileNfcClaim = async (issue: any, balance: number, nfcPoints: number)
   await kv.set(`nfc-reconciled:${issue.id}`, { reconciledAt: new Date().toISOString() });
 };
 
+const validRfidIdentifier = (value: string) => /^[A-Za-z0-9:_-]{4,80}$/.test(value);
+const maskRfidIdentifier = (value: string) => value.length <= 6 ? `••${value.slice(-2)}` : `${value.slice(0, 3)}••••${value.slice(-3)}`;
+const maskPhone = (value: string) => {
+  const digits = normalizePhone(value);
+  return digits.length < 5 ? "••••" : `${digits.slice(0, 2)}${"•".repeat(Math.max(4, digits.length - 4))}${digits.slice(-2)}`;
+};
+const rfidCardKey = async (businessId: number, identifier: string) => `rfid-card:${businessId}:${await hashText(identifier.trim().toUpperCase())}`;
+const reconcileRfidTransaction = async (card: any, transaction: any, balance: number) => {
+  const ownerState = await kv.get(`state:${card.ownerId}`) ?? {};
+  ownerState.customers = (ownerState.customers ?? []).map((customer: any) =>
+    String(customer.id) === String(card.customerId) ? { ...customer, points: balance } : customer
+  );
+  const activities = Array.isArray(ownerState.activities) ? ownerState.activities : [];
+  if (!activities.some((activity: any) => activity.id === transaction.id)) ownerState.activities = [transaction, ...activities];
+  await kv.set(`state:${card.ownerId}`, ownerState);
+};
+
 const getBusinessAudience = async (businessId: number) => {
   const indexed = await kv.getByPrefix(`business-member:${businessId}:`);
   const members = new Map<string, any>();
@@ -273,7 +290,9 @@ app.onError((error: any, c) => {
     error?.code === "PGRST202" ||
     String(error?.message ?? "").includes("perklyn_create_nfc_issue") ||
     String(error?.message ?? "").includes("perklyn_claim_nfc_issue") ||
-    String(error?.message ?? "").includes("perklyn_cancel_nfc_issue");
+    String(error?.message ?? "").includes("perklyn_cancel_nfc_issue") ||
+    String(error?.message ?? "").includes("perklyn_activate_rfid_card") ||
+    String(error?.message ?? "").includes("perklyn_rfid_points_transaction");
   if (databaseSetupMissing) {
     console.log("NFC database functions are not installed", error?.code ?? "missing_rpc");
     return c.json({ error: "NFC database setup is incomplete. Apply the latest Supabase migration, then redeploy the Edge Function." }, 503);
@@ -950,6 +969,248 @@ app.post(`${prefix}/nfc/claim`, async (c) => {
     nfcPoints: Number(result.nfcPoints),
     membershipCreated: Boolean(result.membershipCreated),
   });
+});
+
+app.get(`${prefix}/rfid/cards`, async (c) => {
+  const user = await authenticatedUser(c);
+  if (!user) return c.json({ error: "Unauthorized" }, 401);
+  const businessId = Number(c.req.query("businessId"));
+  if (!await ownedBusiness(businessId, user.id)) return c.json({ error: "You do not own this business." }, 403);
+  const cards = await kv.getByPrefix(`rfid-card:${businessId}:`);
+  return c.json({
+    cards: cards
+      .filter((card: any) => card.ownerId === user.id)
+      .sort((a: any, b: any) => String(b.activatedAt).localeCompare(String(a.activatedAt)))
+      .map(({ identifierHash, phone, _key, ...card }: any) => ({ ...card, maskedPhone: maskPhone(phone ?? "") })),
+  });
+});
+
+app.get(`${prefix}/rfid/customers`, async (c) => {
+  const user = await authenticatedUser(c);
+  if (!user) return c.json({ error: "Unauthorized" }, 401);
+  const businessId = Number(c.req.query("businessId"));
+  const query = String(c.req.query("query") ?? "").trim().toLowerCase();
+  if (!await ownedBusiness(businessId, user.id)) return c.json({ error: "You do not own this business." }, 403);
+  if (!query) return c.json({ customers: [] });
+  const state = await kv.get(`state:${user.id}`) ?? {};
+  const customers = (state.customers ?? []).filter((customer: any) =>
+    `${customer.id} ${customer.name} ${customer.phone}`.toLowerCase().includes(query)
+  ).slice(0, 20);
+  const verified = [];
+  for (const customer of customers) {
+    const membership = await kv.get(`pending:${normalizePhone(customer.phone)}:${businessId}`);
+    if (membership?.ownerId === user.id) verified.push({ ...customer, points: Number(membership.points ?? 0) });
+  }
+  return c.json({ customers: verified });
+});
+
+app.post(`${prefix}/rfid/cards/activate`, async (c) => {
+  const user = await authenticatedUser(c);
+  if (!user) return c.json({ error: "Unauthorized" }, 401);
+  const body = await c.req.json();
+  const businessId = Number(body.businessId);
+  const identifier = String(body.cardIdentifier ?? "").trim().toUpperCase();
+  const customerId = String(body.customerId ?? "");
+  const reassign = body.reassign === true;
+  const replaceCardId = String(body.replaceCardId ?? "");
+  if (!await ownedBusiness(businessId, user.id)) return c.json({ error: "You do not own this business." }, 403);
+  if (!validRfidIdentifier(identifier)) return c.json({ error: "The reader returned an invalid card identifier." }, 400);
+  if (!await checkRateLimit("rfid-activate", `${user.id}:${businessId}`, 40, 60 * 60 * 1000)) return c.json({ error: "Too many card activation attempts." }, 429);
+  const state = await kv.get(`state:${user.id}`) ?? {};
+  const customer = (state.customers ?? []).find((item: any) => String(item.id) === customerId);
+  if (!customer) return c.json({ error: "Select an existing customer from this business." }, 404);
+  const membership = await kv.get(`pending:${normalizePhone(customer.phone)}:${businessId}`);
+  if (!membership || membership.ownerId !== user.id) return c.json({ error: "This customer does not belong to the current business." }, 403);
+  const key = await rfidCardKey(businessId, identifier);
+  const now = new Date().toISOString();
+  const card = {
+    id: crypto.randomUUID(),
+    businessId,
+    ownerId: user.id,
+    customerId,
+    customerName: customer.name,
+    phone: customer.phone,
+    identifierHash: key.split(":").at(-1),
+    maskedIdentifier: maskRfidIdentifier(identifier),
+    status: "active",
+    activatedAt: now,
+    lastScannedAt: null,
+  };
+  let replacement: any = null;
+  if (replaceCardId) {
+    const allCards = await kv.getByPrefix(`rfid-card:${businessId}:`);
+    replacement = allCards.find((item: any) => item.id === replaceCardId && item.ownerId === user.id);
+    if (!replacement || String(replacement.customerId) !== customerId || replacement.status !== "active") {
+      return c.json({ error: "The active replacement card does not match this customer." }, 400);
+    }
+  }
+  const result = await nfcRpc("perklyn_activate_rfid_card", {
+    p_card_key: key,
+    p_card_value: card,
+    p_customer_id: customerId,
+    p_reassign: reassign,
+  });
+  if (result?.result === "already_linked") {
+    return c.json({
+      error: "This card is already linked to another customer.",
+      conflict: {
+        cardId: result.card?.id,
+        customerName: result.card?.customerName,
+        maskedIdentifier: result.card?.maskedIdentifier,
+        status: result.card?.status,
+      },
+    }, 409);
+  }
+  if (result?.result === "already_active") return c.json({ error: "This card is already active for the selected customer.", card: result.card }, 409);
+  if (result?.result === "inactive_card") return c.json({ error: `This card is ${result.card?.status ?? "inactive"}. Secure reassignment confirmation is required.` }, 409);
+  if (replacement) {
+    const oldKey = `rfid-card:${businessId}:${replacement.identifierHash}`;
+    await kv.set(oldKey, { ...replacement, status: "replaced", replacedAt: now, replacedByCardId: card.id });
+  }
+  return c.json({ card: result.card, message: "Loyalty card activated successfully." }, 201);
+});
+
+app.post(`${prefix}/rfid/cards/scan`, async (c) => {
+  const user = await authenticatedUser(c);
+  if (!user) return c.json({ error: "Unauthorized" }, 401);
+  const { businessId: rawBusinessId, cardIdentifier: rawIdentifier } = await c.req.json();
+  const businessId = Number(rawBusinessId);
+  const identifier = String(rawIdentifier ?? "").trim().toUpperCase();
+  const business = await ownedBusiness(businessId, user.id);
+  if (!business) return c.json({ error: "You do not own this business." }, 403);
+  if (!validRfidIdentifier(identifier)) return c.json({ status: "scan_failed", error: "The reader returned an invalid card identifier." }, 400);
+  if (!await checkRateLimit("rfid-scan", `${user.id}:${businessId}`, 240, 60 * 60 * 1000)) return c.json({ error: "Too many card scans. Wait a moment." }, 429);
+  const key = await rfidCardKey(businessId, identifier);
+  const card = await kv.get(key);
+  if (!card || card.ownerId !== user.id) return c.json({ status: "not_registered", error: "This card is not registered to this business." }, 404);
+  if (card.status !== "active") return c.json({ status: card.status, error: `This card is ${card.status} and cannot be used.` }, 409);
+  const membership = await kv.get(`pending:${normalizePhone(card.phone)}:${businessId}`);
+  if (!membership || membership.ownerId !== user.id) return c.json({ status: "customer_lookup_failed", error: "The linked customer membership could not be verified." }, 409);
+  const scannedAt = new Date().toISOString();
+  await kv.set(key, { ...card, lastScannedAt: scannedAt });
+  const ownerState = await kv.get(`state:${user.id}`) ?? {};
+  const lastTransaction = (ownerState.activities ?? []).find((activity: any) =>
+    Number(activity.businessId) === businessId && normalizePhone(activity.phone) === normalizePhone(card.phone)
+  );
+  return c.json({
+    status: "detected",
+    card: { id: card.id, maskedIdentifier: card.maskedIdentifier, status: card.status, lastScannedAt: scannedAt },
+    customer: {
+      id: card.customerId,
+      name: card.customerName,
+      maskedPhone: maskPhone(card.phone),
+      points: Number(membership.points ?? 0),
+    },
+    rewards: (business.rewards ?? []).map((reward: any) => ({ ...reward, available: reward.active !== false })),
+    lastTransaction: lastTransaction ?? null,
+  });
+});
+
+app.post(`${prefix}/rfid/cards/:id/block`, async (c) => {
+  const user = await authenticatedUser(c);
+  if (!user) return c.json({ error: "Unauthorized" }, 401);
+  const { businessId: rawBusinessId } = await c.req.json();
+  const businessId = Number(rawBusinessId);
+  if (!await ownedBusiness(businessId, user.id)) return c.json({ error: "You do not own this business." }, 403);
+  const cards = await kv.getByPrefix(`rfid-card:${businessId}:`);
+  const card = cards.find((item: any) => item.id === c.req.param("id") && item.ownerId === user.id);
+  if (!card) return c.json({ error: "RFID card not found." }, 404);
+  if (card.status !== "active") return c.json({ error: `This card is already ${card.status}.` }, 409);
+  const blocked = { ...card, status: "blocked", blockedAt: new Date().toISOString() };
+  await kv.set(`rfid-card:${businessId}:${card.identifierHash}`, blocked);
+  return c.json({ card: blocked });
+});
+
+app.post(`${prefix}/rfid/transactions/add`, async (c) => {
+  const user = await authenticatedUser(c);
+  if (!user) return c.json({ error: "Unauthorized" }, 401);
+  const body = await c.req.json();
+  const businessId = Number(body.businessId);
+  const points = Number(body.points);
+  const operationId = String(body.operationId ?? "");
+  const business = await ownedBusiness(businessId, user.id);
+  if (!business) return c.json({ error: "You do not own this business." }, 403);
+  if (!await checkRateLimit("rfid-transaction", `${user.id}:${businessId}`, 120, 60 * 1000)) return c.json({ error: "Too many RFID transactions. Wait a moment." }, 429);
+  if (!Number.isInteger(points) || points < 1 || points > 1_000_000) return c.json({ error: "Enter a valid positive number of points." }, 400);
+  if (!/^[0-9a-f-]{36}$/i.test(operationId)) return c.json({ error: "Invalid transaction request." }, 400);
+  const cards = await kv.getByPrefix(`rfid-card:${businessId}:`);
+  const card = cards.find((item: any) => item.id === body.cardId && item.ownerId === user.id);
+  if (!card || card.status !== "active") return c.json({ error: "Scan an active card before adding points." }, 409);
+  const transaction = {
+    id: `rfid:${operationId}`,
+    businessId,
+    customerName: card.customerName,
+    phone: card.phone,
+    type: "issued",
+    source: "rfid",
+    points,
+    delta: points,
+    purchaseAmount: body.purchaseAmount ? Number(body.purchaseAmount) : null,
+    description: String(body.note ?? "").trim().slice(0, 180) || "Points added by RFID card",
+    cardId: card.id,
+  };
+  const result = await nfcRpc("perklyn_rfid_points_transaction", {
+    p_membership_key: `pending:${normalizePhone(card.phone)}:${businessId}`,
+    p_transaction_key: `rfid-transaction:${businessId}:${operationId}`,
+    p_delta: points,
+    p_transaction_value: transaction,
+  });
+  if (!["completed", "duplicate"].includes(result?.result)) return c.json({ error: "Unable to update this customer balance." }, 409);
+  await reconcileRfidTransaction(card, result.transaction, Number(result.balance));
+  const customerLogin = await resolveCustomerUser(card.phone);
+  if (customerLogin && result.result === "completed") background(dispatchNotification(customerLogin.userId, "customer", {
+    type: "points_changed",
+    category: "loyaltyActivity",
+    title: `Points added at ${business.name}`,
+    body: `${points.toLocaleString()} points added by loyalty card. New balance: ${Number(result.balance).toLocaleString()} points.`,
+    businessId,
+    businessName: business.name,
+    data: { balance: Number(result.balance), delta: points, source: "rfid" },
+  }));
+  return c.json({ balance: Number(result.balance), transaction: result.transaction });
+});
+
+app.post(`${prefix}/rfid/transactions/redeem`, async (c) => {
+  const user = await authenticatedUser(c);
+  if (!user) return c.json({ error: "Unauthorized" }, 401);
+  const body = await c.req.json();
+  const businessId = Number(body.businessId);
+  const operationId = String(body.operationId ?? "");
+  const business = await ownedBusiness(businessId, user.id);
+  if (!business) return c.json({ error: "You do not own this business." }, 403);
+  if (!await checkRateLimit("rfid-transaction", `${user.id}:${businessId}`, 120, 60 * 1000)) return c.json({ error: "Too many RFID transactions. Wait a moment." }, 429);
+  if (!/^[0-9a-f-]{36}$/i.test(operationId)) return c.json({ error: "Invalid redemption request." }, 400);
+  const reward = (business.rewards ?? []).find((item: any) => String(item.id) === String(body.rewardId));
+  if (!reward || reward.active === false) return c.json({ error: "This reward is inactive or unavailable." }, 409);
+  const cost = Number(reward.points);
+  if (!Number.isInteger(cost) || cost < 1) return c.json({ error: "This reward has an invalid point cost." }, 409);
+  const cards = await kv.getByPrefix(`rfid-card:${businessId}:`);
+  const card = cards.find((item: any) => item.id === body.cardId && item.ownerId === user.id);
+  if (!card || card.status !== "active") return c.json({ error: "Scan an active card before redeeming a reward." }, 409);
+  const transaction = {
+    id: `rfid:${operationId}`,
+    businessId,
+    customerName: card.customerName,
+    phone: card.phone,
+    type: "claimed",
+    source: "rfid",
+    points: cost,
+    delta: -cost,
+    rewardId: reward.id,
+    rewardTitle: reward.title,
+    description: `RFID reward redeemed: ${reward.title}`,
+    cardId: card.id,
+  };
+  const result = await nfcRpc("perklyn_rfid_points_transaction", {
+    p_membership_key: `pending:${normalizePhone(card.phone)}:${businessId}`,
+    p_transaction_key: `rfid-transaction:${businessId}:${operationId}`,
+    p_delta: -cost,
+    p_transaction_value: transaction,
+  });
+  if (result?.result === "insufficient_points") return c.json({ error: `This customer needs ${cost - Number(result.balance)} more points.` }, 409);
+  if (!["completed", "duplicate"].includes(result?.result)) return c.json({ error: "Unable to redeem this reward." }, 409);
+  await reconcileRfidTransaction(card, result.transaction, Number(result.balance));
+  return c.json({ balance: Number(result.balance), transaction: result.transaction, reward: { id: reward.id, title: reward.title, points: cost } });
 });
 
 app.get(`${prefix}/claim-capabilities`, async (c) => {
