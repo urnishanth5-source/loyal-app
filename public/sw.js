@@ -1,4 +1,4 @@
-const CACHE_NAME = "perklyn-app-v2";
+const CACHE_NAME = "perklyn-app-v3";
 const APP_SHELL = [
   "/",
   "/manifest.webmanifest",

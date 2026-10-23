@@ -567,12 +567,12 @@ function DashboardHeader({ title, subtitle, onLogout, onSettings, onNotification
 
 function SettingsDialog({ onClose }: { onClose: () => void }) {
   const callSupport = () => { window.location.href = "tel:+18005550110"; };
-  const emailSupport = () => { window.location.href = "mailto:support@perklyn.app?subject=Perklyn%20support"; };
+  const emailSupport = () => { window.location.href = "mailto:urnishanth22@gmail.com?subject=Perklyn%20support"; };
   return <div className="modal-backdrop card-editor-backdrop" onMouseDown={onClose}><section className="settings-dialog" onMouseDown={(event) => event.stopPropagation()}>
     <div className="flex items-start justify-between"><div><div className="page-kicker">Settings</div><div className="mt-2 text-2xl font-extrabold tracking-[-.04em] text-[#123b30]">Customer care</div><p className="mt-2 text-sm text-[#73827d]">Our support team is ready to help with your Perklyn account.</p></div><button className="icon-button" onClick={onClose}>×</button></div>
     <div className="support-options">
       <button onClick={callSupport}><i><Icon name="phone" size={22} /></i><span><b>Call customer care</b><small>+1 800 555 0110</small><em>Available Mon–Sat, 8 AM–8 PM</em></span><Icon name="chevron" size={18} /></button>
-      <button onClick={emailSupport}><i><Icon name="card" size={22} /></i><span><b>Email customer care</b><small>support@perklyn.app</small><em>Usually replies within one business day</em></span><Icon name="chevron" size={18} /></button>
+      <button onClick={emailSupport}><i><Icon name="card" size={22} /></i><span><b>Email customer care</b><small>urnishanth22@gmail.com</small><em>Usually replies within one business day</em></span><Icon name="chevron" size={18} /></button>
     </div>
     <div className="support-note"><Icon name="check" size={17} /><span>For point or reward questions, include the business name and your registered phone number.</span></div>
   </section></div>;
