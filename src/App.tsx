@@ -540,7 +540,7 @@ function SignIn({ onEnter }: { onEnter: (role: Role, isNew: boolean, details: { 
           </div>
           </>}
           <div className="mt-8 rounded-2xl border border-[#dce6e1] bg-[#f7faf8] p-4 text-center text-xs leading-5 text-[#6a7b75]">
-            Your account data is securely synchronized through Supabase across supported devices.
+            Your account data is securely synchronized through Supabase across supported devices.<br /><button type="button" className="mt-2 font-extrabold text-[#d4b95e] hover:underline" onClick={() => { window.location.href = "/privacy-policy"; }}>Privacy Policy</button>
           </div>
         </div>
       </section>
