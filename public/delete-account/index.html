@@ -1,0 +1,374 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#063b2d" />
+    <meta name="robots" content="index, follow" />
+    <meta
+      name="description"
+      content="Request deletion of a Perklyn customer or business account and its associated data."
+    />
+    <title>Delete Your Account | Perklyn</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        font-family:
+          Manrope, Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+          sans-serif;
+        color: #edf8f3;
+        background: #032b20;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        min-width: 320px;
+        min-height: 100vh;
+        margin: 0;
+        background:
+          radial-gradient(circle at 85% 5%, rgb(39 180 137 / 20%), transparent 30rem),
+          radial-gradient(circle at 10% 65%, rgb(105 171 126 / 14%), transparent 34rem),
+          linear-gradient(155deg, #063b2d, #02271e 72%);
+        -webkit-font-smoothing: antialiased;
+      }
+
+      header {
+        position: sticky;
+        z-index: 2;
+        top: 0;
+        border-bottom: 1px solid rgb(255 255 255 / 10%);
+        background: rgb(3 42 31 / 82%);
+        backdrop-filter: blur(24px);
+      }
+
+      nav {
+        display: flex;
+        width: min(calc(100% - 2rem), 62rem);
+        min-height: 4.7rem;
+        margin: 0 auto;
+        align-items: center;
+        justify-content: space-between;
+        gap: 1rem;
+      }
+
+      .brand {
+        display: flex;
+        align-items: center;
+        gap: 0.7rem;
+        color: #d4b95e;
+        font-size: 1.25rem;
+        font-weight: 900;
+        letter-spacing: -0.04em;
+        text-decoration: none;
+      }
+
+      .brand img {
+        width: 2.45rem;
+        height: 2.45rem;
+        border-radius: 0.7rem;
+        background: #062f26;
+      }
+
+      .nav-link {
+        padding: 0.62rem 0.8rem;
+        border: 1px solid rgb(255 255 255 / 16%);
+        border-radius: 0.7rem;
+        color: #eaf6f0;
+        background: rgb(255 255 255 / 8%);
+        font-size: 0.72rem;
+        font-weight: 800;
+        text-decoration: none;
+      }
+
+      main {
+        width: min(calc(100% - 2rem), 62rem);
+        margin: 0 auto;
+        padding: 4rem 0 6rem;
+      }
+
+      .hero {
+        max-width: 49rem;
+      }
+
+      .kicker {
+        color: #d4b95e;
+        font-size: 0.7rem;
+        font-weight: 900;
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+      }
+
+      h1 {
+        margin: 0.8rem 0 1rem;
+        color: white;
+        font-size: clamp(2.4rem, 7vw, 4.6rem);
+        line-height: 0.98;
+        letter-spacing: -0.06em;
+      }
+
+      .intro {
+        margin: 0;
+        color: rgb(225 241 233 / 72%);
+        font-size: 1rem;
+        line-height: 1.8;
+      }
+
+      .content {
+        display: grid;
+        gap: 1rem;
+        margin-top: 2.5rem;
+      }
+
+      section {
+        padding: clamp(1.2rem, 4vw, 1.8rem);
+        border: 1px solid rgb(255 255 255 / 11%);
+        border-radius: 1.2rem;
+        background: linear-gradient(145deg, rgb(255 255 255 / 8%), rgb(3 46 34 / 28%));
+        box-shadow: inset 0 1px 0 rgb(255 255 255 / 8%);
+      }
+
+      .request {
+        border-color: rgb(92 239 195 / 24%);
+        background: linear-gradient(145deg, rgb(39 184 139 / 13%), rgb(3 46 34 / 32%));
+      }
+
+      h2 {
+        margin: 0 0 0.8rem;
+        color: #f7fbf9;
+        font-size: 1.15rem;
+        letter-spacing: -0.025em;
+      }
+
+      h3 {
+        margin: 1rem 0 0.45rem;
+        color: #e8dcaa;
+        font-size: 0.82rem;
+      }
+
+      p,
+      li {
+        color: rgb(225 241 233 / 68%);
+        font-size: 0.78rem;
+        line-height: 1.75;
+      }
+
+      p {
+        margin: 0.6rem 0;
+      }
+
+      ol,
+      ul {
+        display: grid;
+        gap: 0.55rem;
+        margin: 0.7rem 0 0;
+        padding-left: 1.25rem;
+      }
+
+      strong {
+        color: #f3f9f6;
+      }
+
+      a {
+        color: #7de8c9;
+      }
+
+      .request-button {
+        display: inline-flex;
+        min-height: 3.2rem;
+        margin-top: 1rem;
+        align-items: center;
+        justify-content: center;
+        padding: 0.8rem 1.15rem;
+        border: 1px solid rgb(139 255 234 / 70%);
+        border-radius: 0.8rem;
+        color: white;
+        background: linear-gradient(110deg, #087b68, #0dcfb2);
+        box-shadow: 0 0 1rem rgb(17 242 205 / 28%);
+        font-size: 0.78rem;
+        font-weight: 900;
+        text-decoration: none;
+      }
+
+      .notice {
+        padding: 0.8rem 0.9rem;
+        border-radius: 0.75rem;
+        color: #e8dcaa;
+        background: rgb(212 185 94 / 10%);
+        font-size: 0.7rem;
+        line-height: 1.6;
+      }
+
+      .data-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 1rem;
+      }
+
+      .data-grid section:first-child {
+        border-color: rgb(92 239 195 / 20%);
+      }
+
+      .data-grid section:last-child {
+        border-color: rgb(212 185 94 / 20%);
+      }
+
+      footer {
+        width: min(calc(100% - 2rem), 62rem);
+        margin: 0 auto;
+        padding: 1.5rem 0 2.5rem;
+        border-top: 1px solid rgb(255 255 255 / 9%);
+        color: rgb(225 241 233 / 46%);
+        font-size: 0.65rem;
+        text-align: center;
+      }
+
+      @media (max-width: 700px) {
+        main {
+          padding-top: 2.5rem;
+        }
+
+        .data-grid {
+          grid-template-columns: 1fr;
+        }
+
+        .request-button {
+          width: 100%;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <nav aria-label="Account deletion navigation">
+        <a class="brand" href="/">
+          <img src="/perklyn-logo.svg" alt="" />
+          <span>Perklyn</span>
+        </a>
+        <a class="nav-link" href="/privacy-policy">Privacy Policy</a>
+      </nav>
+    </header>
+
+    <main>
+      <div class="hero">
+        <div class="kicker">Account &amp; data controls</div>
+        <h1>Delete your Perklyn account</h1>
+        <p class="intro">
+          This page explains how Perklyn customer and business users can request
+          deletion of their account and associated data, including requests
+          made without access to the installed app.
+        </p>
+      </div>
+
+      <div class="content">
+        <section class="request">
+          <h2>How to request account deletion</h2>
+          <ol>
+            <li>
+              Email <strong>support@perklyn.app</strong>, preferably from the
+              recovery email registered to your Perklyn account.
+            </li>
+            <li>
+              Use the subject <strong>Perklyn account deletion request</strong>.
+            </li>
+            <li>
+              Include your account role (customer or business) and your
+              registered phone number. Business owners should also include
+              their business name.
+            </li>
+            <li>
+              Perklyn will verify that you control the account. We will never
+              ask you to send your password, an RFID card number, or an NFC
+              token.
+            </li>
+            <li>
+              After verification, we will begin deletion and normally complete
+              the request within 30 days.
+            </li>
+          </ol>
+          <a
+            class="request-button"
+            href="mailto:support@perklyn.app?subject=Perklyn%20account%20deletion%20request&amp;body=Account%20role%20(customer%20or%20business)%3A%0ARegistered%20phone%20number%3A%0ABusiness%20name%20(if%20applicable)%3A%0A%0AI%20request%20deletion%20of%20my%20Perklyn%20account%20and%20associated%20data."
+          >
+            Request account deletion
+          </a>
+          <p>
+            If the button does not open your email application, manually send
+            the request to
+            <a href="mailto:support@perklyn.app">support@perklyn.app</a>.
+          </p>
+        </section>
+
+        <div class="data-grid">
+          <section>
+            <h2>Data deleted</h2>
+            <p>After identity verification, deletion generally includes:</p>
+            <ul>
+              <li>Perklyn authentication account and login credentials.</li>
+              <li>Name, recovery email, phone number, and profile information not required for retention.</li>
+              <li>Notification preferences and push-notification subscriptions.</li>
+              <li>Active RFID and NFC card associations linked to the deleted account.</li>
+              <li>Customer wallet state and other account settings not required for retained records.</li>
+              <li>For a business closure, editable business profile, campaigns, and active loyalty configuration where no retention obligation applies.</li>
+            </ul>
+          </section>
+
+          <section>
+            <h2>Data that may be retained</h2>
+            <p>
+              Limited records may be kept when reasonably required for legal,
+              security, fraud-prevention, accounting, or dispute-resolution
+              purposes:
+            </p>
+            <ul>
+              <li>Points transactions, reward redemptions, and audit records.</li>
+              <li>Records needed to protect another user's or business's rights and balances.</li>
+              <li>Security logs and evidence of consent, requests, or prior misuse.</li>
+              <li>Records required by tax, accounting, consumer-protection, or other applicable law.</li>
+            </ul>
+            <p>
+              Retained records are restricted to these purposes and kept only
+              for the applicable legal or operational retention period,
+              generally no longer than seven years where a longer period is
+              legally required. Data not subject to retention is deleted or
+              de-identified.
+            </p>
+          </section>
+        </div>
+
+        <section>
+          <h2>What happens after deletion</h2>
+          <ul>
+            <li>You will lose access to the deleted account.</li>
+            <li>Active physical cards connected to the account will no longer be usable for loyalty transactions.</li>
+            <li>Unused points and unredeemed rewards associated only with the deleted membership may become unavailable.</li>
+            <li>Account deletion cannot be undone after it is completed.</li>
+          </ul>
+          <p class="notice">
+            Deleting the Perklyn app from your device does not delete your
+            account. You must submit a deletion request using the steps above.
+          </p>
+        </section>
+
+        <section>
+          <h2>Questions or corrections</h2>
+          <p>
+            If you only need to correct your account information or disconnect
+            from a particular business, say so in your message. You do not need
+            to delete your entire account for a correction request.
+          </p>
+          <p>
+            For more information about how Perklyn handles data, read our
+            <a href="/privacy-policy">Privacy Policy</a>.
+          </p>
+        </section>
+      </div>
+    </main>
+
+    <footer>
+      © 2026 Perklyn · Account and associated-data deletion information
+    </footer>
+  </body>
+</html>
