@@ -7,6 +7,10 @@
     {
       "source": "/download",
       "destination": "/index.html"
+    },
+    {
+      "source": "/organization",
+      "destination": "/index.html"
     }
   ]
 }

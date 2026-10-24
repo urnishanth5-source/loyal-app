@@ -729,6 +729,260 @@ function DownloadPage() {
   )
 }
 
+function OrganizationPage() {
+  useEffect(() => {
+    const previousTitle = document.title
+    document.title = "Perklyn — Building rewarding connections"
+    return () => {
+      document.title = previousTitle
+    }
+  }, [])
+
+  const openEmail = () => {
+    window.location.href =
+      "mailto:urnishanth5@gmail.com?subject=Hello%20Perklyn"
+  }
+
+  const callFounder = () => {
+    window.location.href = "tel:+917010113277"
+  }
+
+  const capabilities = [
+    {
+      icon: "card",
+      title: "Digital loyalty cards",
+      description:
+        "A single place for customers to collect points and keep every connected business close.",
+    },
+    {
+      icon: "gift",
+      title: "Rewards that feel simple",
+      description:
+        "Businesses create meaningful rewards while customers can see, unlock, and claim them with ease.",
+    },
+    {
+      icon: "nfc",
+      title: "Built for the counter",
+      description:
+        "NFC and RFID experiences make issuing points and serving loyal customers fast and practical.",
+    },
+    {
+      icon: "bell",
+      title: "Real-time connection",
+      description:
+        "Timely updates help businesses share offers and keep their members informed and engaged.",
+    },
+  ]
+
+  return (
+    <main className="org-page">
+      <nav className="org-nav" aria-label="Organization navigation">
+        <Button
+          variant="ghost"
+          className="org-brand-button"
+          onClick={() => {
+            window.location.href = "/organization"
+          }}
+        >
+          <Brand light />
+        </Button>
+        <div className="org-nav-actions">
+          <Button
+            variant="ghost"
+            onClick={() => {
+              window.location.href = "/download"
+            }}
+          >
+            Get the app
+          </Button>
+          <Button onClick={openEmail}>
+            Contact us <Icon name="arrow" size={17} />
+          </Button>
+        </div>
+      </nav>
+
+      <section className="org-hero">
+        <div className="org-hero-copy">
+          <div className="org-eyebrow">
+            <span>
+              <Icon name="spark" size={14} />
+            </span>
+            Perklyn organization
+          </div>
+          <div className="org-hero-title">
+            We build technology that makes loyalty feel <em>more human.</em>
+          </div>
+          <p>
+            Perklyn helps local businesses turn everyday visits into lasting
+            relationships—with one seamless rewards experience for businesses
+            and their customers.
+          </p>
+          <div className="org-hero-actions">
+            <Button
+              onClick={() => {
+                window.location.href = "/download"
+              }}
+            >
+              Explore the app <Icon name="arrow" size={18} />
+            </Button>
+            <Button variant="secondary" onClick={openEmail}>
+              Start a conversation
+            </Button>
+          </div>
+        </div>
+
+        <div className="org-hero-art" aria-hidden="true">
+          <div className="org-art-glow" />
+          <div className="org-card-stack org-stack-back">
+            <span>CONNECTED BUSINESS</span>
+            <b>Better relationships</b>
+            <small>Powered by Perklyn</small>
+          </div>
+          <div className="org-card-stack org-stack-front">
+            <div className="org-card-brand">
+              <img src="/perklyn-logo.svg" alt="" />
+              <span>PERKLYN</span>
+            </div>
+            <div className="org-card-label">YOUR REWARDS</div>
+            <strong>2,450</strong>
+            <small>POINTS AVAILABLE</small>
+            <div className="org-card-progress">
+              <i />
+              <i />
+              <i />
+              <i />
+              <i />
+            </div>
+          </div>
+          <div className="org-art-note">
+            <span>
+              <Icon name="check" size={17} />
+            </span>
+            <div>
+              <b>Reward unlocked</b>
+              <small>Ready to claim</small>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section className="org-purpose">
+        <div className="org-section-label">Why we are building Perklyn</div>
+        <div className="org-purpose-layout">
+          <div className="org-section-title">
+            Loyalty should build a relationship, not add more work.
+          </div>
+          <div>
+            <p>
+              Great businesses remember their customers. Perklyn gives them a
+              modern way to recognize every visit, reward continued support, and
+              stay connected beyond the counter.
+            </p>
+            <p>
+              We design for clarity, trust, and real-world use—so the technology
+              stays out of the way and the relationship can take center stage.
+            </p>
+          </div>
+        </div>
+      </section>
+
+      <section className="org-product">
+        <div className="org-section-heading">
+          <div>
+            <div className="org-section-label">What we built</div>
+            <div className="org-section-title">
+              One rewards platform.
+              <br />
+              Two connected experiences.
+            </div>
+          </div>
+          <p>
+            Perklyn brings a business portal and customer wallet together in one
+            thoughtfully designed platform.
+          </p>
+        </div>
+        <div className="org-capability-grid">
+          {capabilities.map((capability, index) => (
+            <article className="org-capability" key={capability.title}>
+              <div className="org-capability-top">
+                <span>
+                  <Icon name={capability.icon} size={23} />
+                </span>
+                <small>0{index + 1}</small>
+              </div>
+              <div className="org-capability-title">{capability.title}</div>
+              <p>{capability.description}</p>
+            </article>
+          ))}
+        </div>
+      </section>
+
+      <section className="org-founder">
+        <div className="org-founder-card">
+          <div className="org-founder-mark">
+            <span>U</span>
+            <i />
+          </div>
+          <div className="org-founder-copy">
+            <div className="org-section-label">About the founder</div>
+            <div className="org-founder-title">
+              Built with curiosity, care, and a belief in better local
+              experiences.
+            </div>
+            <p>
+              I’m Urnishanth, the founder and builder behind Perklyn. I created
+              Perklyn to give businesses a simpler way to reward the people who
+              keep coming back—and to give customers one beautiful place for the
+              loyalty experiences they value.
+            </p>
+            <div className="org-founder-signoff">
+              <span>Urnishanth</span>
+              <small>Founder, Perklyn</small>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section className="org-contact">
+        <div className="org-contact-copy">
+          <div className="org-section-label">Let’s connect</div>
+          <div className="org-contact-title">
+            Have an idea, a question, or want to work with Perklyn?
+          </div>
+          <p>We would be glad to hear from you.</p>
+        </div>
+        <div className="org-contact-actions">
+          <Button onClick={openEmail}>
+            <Icon name="arrow" size={18} />
+            <span>
+              <small>Email us</small>
+              urnishanth5@gmail.com
+            </span>
+          </Button>
+          <Button variant="secondary" onClick={callFounder}>
+            <Icon name="phone" size={18} />
+            <span>
+              <small>Call us</small>
+              +91 70101 13277
+            </span>
+          </Button>
+        </div>
+      </section>
+
+      <footer className="org-footer">
+        <div>
+          <Brand light />
+          <p>Building rewarding connections.</p>
+        </div>
+        <div className="org-footer-meta">
+          <span>Perklyn · India</span>
+          <span>© {new Date().getFullYear()} Perklyn</span>
+        </div>
+      </footer>
+    </main>
+  )
+}
+
 function PhoneField({
   defaultLocal = "",
   onChange,
@@ -6105,5 +6359,6 @@ function PerklynApp() {
 export default function App() {
   const path = window.location.pathname.replace(/\/+$/, "") || "/"
   if (path === "/dowload" || path === "/download") return <DownloadPage />
+  if (path === "/organization") return <OrganizationPage />
   return <PerklynApp />
 }
