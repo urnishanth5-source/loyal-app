@@ -1,0 +1,12 @@
+{
+  "rewrites": [
+    {
+      "source": "/dowload",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/download",
+      "destination": "/index.html"
+    }
+  ]
+}
