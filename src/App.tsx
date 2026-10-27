@@ -94,13 +94,30 @@ type Activity = {
 }
 
 const cardColors = [
-  { name: "Royal green", value: "from-[#0d4e3a] to-[#073127]" },
-  { name: "Emerald", value: "from-[#0f6a4f] to-[#073b30]" },
-  { name: "Forest", value: "from-[#476c3e] to-[#25492e]" },
-  { name: "Midnight", value: "from-[#183d3d] to-[#102526]" },
-  { name: "Sapphire", value: "from-[#254f68] to-[#142d42]" },
-  { name: "Plum", value: "from-[#66405d] to-[#35243a]" },
+  { name: "Royal violet", value: "from-[#7c2ae8] to-[#3a0a6a]" },
+  { name: "Electric purple", value: "from-[#b62cff] to-[#5b13a5]" },
+  { name: "Pink fusion", value: "from-[#ff4fa3] to-[#8e1ac8]" },
+  { name: "Midnight violet", value: "from-[#43206f] to-[#190b35]" },
+  { name: "Indigo glow", value: "from-[#6152ff] to-[#321279]" },
+  { name: "Plum rose", value: "from-[#a52a84] to-[#3e143c]" },
 ]
+
+const legacyCardColors: Record<string, string> = {
+  "from-[#0d4e3a] to-[#073127]": cardColors[0].value,
+  "from-[#5a1b8e] to-[#2a0d4f]": cardColors[0].value,
+  "from-[#0f6a4f] to-[#073b30]": cardColors[1].value,
+  "from-[#9a2bea] to-[#35115f]": cardColors[1].value,
+  "from-[#476c3e] to-[#25492e]": cardColors[2].value,
+  "from-[#9341c2] to-[#5e2587]": cardColors[2].value,
+  "from-[#183d3d] to-[#102526]": cardColors[3].value,
+  "from-[#34205f] to-[#25113f]": cardColors[3].value,
+  "from-[#254f68] to-[#142d42]": cardColors[4].value,
+  "from-[#553084] to-[#2a1453]": cardColors[4].value,
+  "from-[#66405d] to-[#35243a]": cardColors[5].value,
+}
+
+const normalizeCardColor = (color: string) =>
+  legacyCardColors[color] ?? color ?? cardColors[0].value
 
 type ServerMembership = {
   business: Business
@@ -116,6 +133,7 @@ function mergeMembershipBusinesses(
 ) {
   const pendingBusinesses = memberships.map((membership) => ({
     ...membership.business,
+    color: normalizeCardColor(membership.business.color),
     points: membership.points,
     reward: membership.reward,
     progress: 0,
@@ -477,10 +495,10 @@ function Icon({ name, size = 20 }: { name: string size?: number }) {
 function Brand({ light = false }: { light?: boolean }) {
   return (
     <div className="flex items-center gap-3">
-      <div className={`logo-mark ${light ? "bg-white/10" : "bg-[#092f26]"}`}>
+      <div className={`logo-mark ${light ? "bg-white/10" : "bg-[#2c104f]"}`}>
         <img src="/perklyn-logo.svg" alt="" />
       </div>
-      <div className="text-[1.3rem] font-extrabold tracking-[-0.04em] text-[#d4b95e]">
+      <div className="text-[1.3rem] font-extrabold tracking-[-0.04em] text-[#ff4fa3]">
         Perklyn
       </div>
     </div>
@@ -1122,11 +1140,11 @@ function SignIn({
       onPointerDown={() => setMascotBlink((blink) => blink + 1)}
     >
       <section className="signin-story">
-        <div className="absolute inset-0 opacity-15 bg-[radial-gradient(circle_at_70%_20%,#e3ca72_0,transparent_34%),radial-gradient(circle_at_15%_80%,#4f8d78_0,transparent_38%)]" />
+        <div className="absolute inset-0 opacity-15 bg-[radial-gradient(circle_at_70%_20%,#ff70b9_0,transparent_34%),radial-gradient(circle_at_15%_80%,#4f8d78_0,transparent_38%)]" />
         <div className="relative z-10 flex h-full max-w-[46rem] flex-col justify-between">
           <Brand light />
           <div className="max-w-[37rem] py-16">
-            <div className="eyebrow text-[#eadb9d]">
+            <div className="eyebrow text-[#ffaddb]">
               <Icon name="spark" size={17} /> One wallet. Every reward.
             </div>
             <div className="mt-6 text-[clamp(2.8rem,5.7vw,5.5rem)] font-extrabold leading-[.95] tracking-[-0.06em] text-white">
@@ -1219,7 +1237,7 @@ function SignIn({
           )}
           <div
             className={`text-3xl font-extrabold tracking-[-0.04em] ${
-              showRecovery || showSignup ? "text-[#123b30]" : "text-white"
+              showRecovery || showSignup ? "text-[#3b1765]" : "text-white"
             }`}
           >
             {showRecovery
@@ -1228,7 +1246,7 @@ function SignIn({
                 ? "Create your account"
                 : "Welcome back"}
           </div>
-          <p className="mt-3 text-[#687a74]">
+          <p className="mt-3 text-[#7c6f84]">
             {showRecovery
               ? "We’ll email you a secure link to choose a new password."
               : showSignup
@@ -1283,7 +1301,7 @@ function SignIn({
               </label>
               {recoveryMessage && (
                 <div
-                  className="rounded-xl bg-[#edf7f2] p-4 text-sm font-semibold text-[#0d5946]"
+                  className="rounded-xl bg-[#f3e8ff] p-4 text-sm font-semibold text-[#7b23c7]"
                   role="status"
                 >
                   {recoveryMessage}
@@ -1303,7 +1321,7 @@ function SignIn({
                   setShowRecovery(false)
                   setRecoveryMessage("")
                 }}
-                className="w-full text-center text-sm font-extrabold text-[#0d5946] hover:underline"
+                className="w-full text-center text-sm font-extrabold text-[#7b23c7] hover:underline"
               >
                 Back to sign in
               </button>
@@ -1430,8 +1448,8 @@ function SignIn({
                 )}
                 {!showSignup && (
                   <div className="flex items-center justify-between text-sm">
-                    <label className="flex items-center gap-2 text-[#687a74]">
-                      <input type="checkbox" className="accent-[#0d5946]" />
+                    <label className="flex items-center gap-2 text-[#7c6f84]">
+                      <input type="checkbox" className="accent-[#7b23c7]" />
                       Remember me
                     </label>
                     <button
@@ -1440,7 +1458,7 @@ function SignIn({
                         setShowRecovery(true)
                         setAuthMessage("")
                       }}
-                      className="font-bold text-[#0d5946]"
+                      className="font-bold text-[#7b23c7]"
                     >
                       Forgot password?
                     </button>
@@ -1461,7 +1479,7 @@ function SignIn({
                   {!submitting && <Icon name="arrow" size={18} />}
                 </Button>
               </form>
-              <div className="mt-8 text-center text-sm text-[#687a74]">
+              <div className="mt-8 text-center text-sm text-[#7c6f84]">
                 {showSignup ? "Already have an account? " : "New to Perklyn? "}
                 <button
                   type="button"
@@ -1470,7 +1488,7 @@ function SignIn({
                     setAuthorizationError("")
                     setAuthMessage("")
                   }}
-                  className="font-extrabold text-[#0d5946] hover:underline"
+                  className="font-extrabold text-[#7b23c7] hover:underline"
                 >
                   {showSignup ? "Sign in" : "Create an account"}
                 </button>
@@ -1483,7 +1501,7 @@ function SignIn({
             <br />
             <button
               type="button"
-              className="mt-2 font-extrabold text-[#d4b95e] hover:underline"
+              className="mt-2 font-extrabold text-[#ff4fa3] hover:underline"
               onClick={() => {
                 window.location.href = "/privacy-policy"
               }}
@@ -1544,7 +1562,7 @@ function DashboardHeader({
         <div className="text-center">
           <div
             className={`font-extrabold ${
-              customer ? "text-white" : "text-[#123b30]"
+              customer ? "text-white" : "text-[#3b1765]"
             }`}
           >
             {title}
@@ -1601,10 +1619,10 @@ function SettingsDialog({ onClose }: { onClose: () => void }) {
         <div className="flex items-start justify-between">
           <div>
             <div className="page-kicker">Settings</div>
-            <div className="mt-2 text-2xl font-extrabold tracking-[-.04em] text-[#123b30]">
+            <div className="mt-2 text-2xl font-extrabold tracking-[-.04em] text-[#3b1765]">
               Customer care
             </div>
-            <p className="mt-2 text-sm text-[#73827d]">
+            <p className="mt-2 text-sm text-[#84768c]">
               Our support team is ready to help with your Perklyn account.
             </p>
           </div>
@@ -1687,10 +1705,10 @@ function NotificationCenter({
         <div className="notification-center-header">
           <div>
             <div className="page-kicker">Perklyn updates</div>
-            <div className="mt-2 text-2xl font-extrabold tracking-[-.04em] text-[#123b30]">
+            <div className="mt-2 text-2xl font-extrabold tracking-[-.04em] text-[#3b1765]">
               Notifications
             </div>
-            <p className="mt-2 text-sm text-[#73827d]">
+            <p className="mt-2 text-sm text-[#84768c]">
               {unreadCount
                 ? `${unreadCount} unread update${unreadCount === 1 ? "" : "s"}`
                 : "You’re all caught up."}
@@ -1738,7 +1756,7 @@ function NotificationCenter({
         )}
         {preferences && (
           <div className="notification-preferences">
-            <div className="text-sm font-extrabold text-[#153d32]">
+            <div className="text-sm font-extrabold text-[#45206f]">
               What you receive
             </div>
             {role === "customer" ? (
@@ -2064,7 +2082,7 @@ function QrScannerModal({
         <div className="flex items-start justify-between">
           <div>
             <div className="page-kicker">Connect a business</div>
-            <div className="mt-2 text-2xl font-extrabold tracking-[-.04em] text-[#123b30]">
+            <div className="mt-2 text-2xl font-extrabold tracking-[-.04em] text-[#3b1765]">
               Scan business QR
             </div>
           </div>
@@ -2321,10 +2339,10 @@ function NfcManager({
         <div className="flex items-start justify-between">
           <div>
             <div className="page-kicker">Contactless loyalty</div>
-            <div className="mt-2 text-2xl font-extrabold tracking-[-.04em] text-[#123b30]">
+            <div className="mt-2 text-2xl font-extrabold tracking-[-.04em] text-[#3b1765]">
               Issue points by NFC
             </div>
-            <p className="mt-2 text-sm text-[#73827d]">
+            <p className="mt-2 text-sm text-[#84768c]">
               Connect one reusable card, then make points available for one
               customer for five minutes.
             </p>
@@ -3796,7 +3814,7 @@ function BusinessDashboard({
     QRCode.toDataURL(businessQrCode, {
       width: 720,
       margin: 2,
-      color: { dark: "#092f26", light: "#ffffff" },
+      color: { dark: "#2c104f", light: "#ffffff" },
       errorCorrectionLevel: "H",
     }).then(setQrImage)
   }, [showQr, businessQrCode])
@@ -4084,7 +4102,7 @@ function BusinessDashboard({
   }
 
   return (
-    <div className="min-h-screen bg-[#f5f8f6]">
+    <div className="min-h-screen bg-[#f8f3ff]">
       <DashboardHeader
         title={merchant.name}
         subtitle="Business portal"
@@ -4191,7 +4209,7 @@ function BusinessDashboard({
         <section className="table-card">
           <div className="table-toolbar">
             <div>
-              <div className="text-lg font-extrabold text-[#153d32]">
+              <div className="text-lg font-extrabold text-[#45206f]">
                 Your customers
               </div>
               <div className="mt-1 text-sm text-[#7a8984]">
@@ -4207,7 +4225,7 @@ function BusinessDashboard({
               />
             </label>
           </div>
-          <div className="hidden grid-cols-[1.35fr_1fr_.65fr_.8fr_1.1fr_.2fr] gap-4 border-y border-[#e7edea] bg-[#f9fbfa] px-6 py-3 text-[.69rem] font-extrabold uppercase tracking-[.1em] text-[#82908b] md:grid">
+          <div className="hidden grid-cols-[1.35fr_1fr_.65fr_.8fr_1.1fr_.2fr] gap-4 border-y border-[#ebdff4] bg-[#faf5ff] px-6 py-3 text-[.69rem] font-extrabold uppercase tracking-[.1em] text-[#91849a] md:grid">
             <span>Customer</span>
             <span>Phone</span>
             <span>Points</span>
@@ -4278,10 +4296,10 @@ function BusinessDashboard({
                   .join("")}
               </i>
               <div>
-                <div className="text-xl font-extrabold text-[#123b30]">
+                <div className="text-xl font-extrabold text-[#3b1765]">
                   {selected.name}
                 </div>
-                <div className="mt-1 text-sm text-[#72817c]">
+                <div className="mt-1 text-sm text-[#83758a]">
                   {selected.phone}
                 </div>
               </div>
@@ -4413,7 +4431,7 @@ function BusinessDashboard({
                 ))
               )}
             </div>
-            <div className="mt-auto rounded-2xl bg-[#f2f7f4] p-4 text-sm leading-6 text-[#667871]">
+            <div className="mt-auto rounded-2xl bg-[#f6effc] p-4 text-sm leading-6 text-[#667871]">
               <b className="text-[#1b4d3e]">Merchant-safe balance</b>
               <br />
               These points are stored only under {merchant.name} and never mixed
@@ -4432,10 +4450,10 @@ function BusinessDashboard({
           >
             <div className="flex items-center justify-between">
               <div>
-                <div className="text-xl font-extrabold text-[#123b30]">
+                <div className="text-xl font-extrabold text-[#3b1765]">
                   Add a customer
                 </div>
-                <p className="mt-1 text-sm text-[#73827d]">
+                <p className="mt-1 text-sm text-[#84768c]">
                   Connect a customer to your loyalty program.
                 </p>
               </div>
@@ -4482,10 +4500,10 @@ function BusinessDashboard({
             <div className="flex items-start justify-between">
               <div>
                 <div className="page-kicker">Customer-facing card</div>
-                <div className="mt-2 text-2xl font-extrabold tracking-[-.04em] text-[#123b30]">
+                <div className="mt-2 text-2xl font-extrabold tracking-[-.04em] text-[#3b1765]">
                   Design your loyalty card
                 </div>
-                <p className="mt-2 text-sm text-[#73827d]">
+                <p className="mt-2 text-sm text-[#84768c]">
                   Changes appear on every connected customer’s wallet.
                 </p>
               </div>
@@ -4506,7 +4524,7 @@ function BusinessDashboard({
                   <div className="editor-logo">
                     <img src={cardLogo} alt="Business logo preview" />
                   </div>
-                  <span className="text-xs font-extrabold tracking-[-.02em] text-[#d4b95e]">
+                  <span className="text-xs font-extrabold tracking-[-.02em] text-[#ff4fa3]">
                     Perklyn
                   </span>
                 </div>
@@ -4592,10 +4610,10 @@ function BusinessDashboard({
             <div className="flex items-start justify-between">
               <div>
                 <div className="page-kicker">Customer rewards</div>
-                <div className="mt-2 text-2xl font-extrabold tracking-[-.04em] text-[#123b30]">
+                <div className="mt-2 text-2xl font-extrabold tracking-[-.04em] text-[#3b1765]">
                   Manage rewards
                 </div>
-                <p className="mt-2 text-sm text-[#73827d]">
+                <p className="mt-2 text-sm text-[#84768c]">
                   These rewards appear under your card in the customer wallet.
                 </p>
               </div>
@@ -4608,7 +4626,7 @@ function BusinessDashboard({
             </div>
             <div className="reward-manager-grid">
               <div className="space-y-3">
-                <div className="text-xs font-extrabold uppercase tracking-[.12em] text-[#83908c]">
+                <div className="text-xs font-extrabold uppercase tracking-[.12em] text-[#92859b]">
                   Active rewards
                 </div>
                 {merchant.rewards.map((reward) => (
@@ -4632,7 +4650,7 @@ function BusinessDashboard({
                 ))}
               </div>
               <form onSubmit={saveReward} className="reward-form">
-                <div className="text-sm font-extrabold text-[#153d32]">
+                <div className="text-sm font-extrabold text-[#45206f]">
                   {editingRewardId ? "Edit reward" : "Add a reward"}
                 </div>
                 <label className="field-label mt-5">
@@ -4697,10 +4715,10 @@ function BusinessDashboard({
             <div className="flex items-start justify-between">
               <div>
                 <div className="page-kicker">Points ledger</div>
-                <div className="mt-2 text-2xl font-extrabold tracking-[-.04em] text-[#123b30]">
+                <div className="mt-2 text-2xl font-extrabold tracking-[-.04em] text-[#3b1765]">
                   Customer activity history
                 </div>
-                <p className="mt-2 text-sm text-[#73827d]">
+                <p className="mt-2 text-sm text-[#84768c]">
                   Track who received points and who claimed rewards.
                 </p>
               </div>
@@ -4803,7 +4821,7 @@ function BusinessDashboard({
             <div className="qr-business-logo">
               <img src={merchant.logo} alt="" />
             </div>
-            <div className="mt-4 text-2xl font-extrabold tracking-[-.04em] text-[#123b30]">
+            <div className="mt-4 text-2xl font-extrabold tracking-[-.04em] text-[#3b1765]">
               {merchant.name}
             </div>
             <p>
@@ -4837,10 +4855,10 @@ function BusinessDashboard({
             <div className="flex items-start justify-between">
               <div>
                 <div className="page-kicker">Member communication</div>
-                <div className="mt-2 text-2xl font-extrabold tracking-[-.04em] text-[#123b30]">
+                <div className="mt-2 text-2xl font-extrabold tracking-[-.04em] text-[#3b1765]">
                   Send a notification
                 </div>
-                <p className="mt-2 text-sm text-[#73827d]">
+                <p className="mt-2 text-sm text-[#84768c]">
                   Reach opted-in members of {merchant.name}. Up to 3 broadcasts
                   are allowed every 24 hours.
                 </p>
@@ -4905,14 +4923,14 @@ function BusinessDashboard({
                 )}
               </div>
               <div>
-                <div className="text-xs font-extrabold uppercase tracking-[.12em] text-[#83908c]">
+                <div className="text-xs font-extrabold uppercase tracking-[.12em] text-[#92859b]">
                   Notification preview
                 </div>
                 <div className="push-preview">
                   <img src="/icons/perklyn-192.png" alt="" />
                   <div>
                     <small>
-                      <span className="font-extrabold text-[#d4b95e]">
+                      <span className="font-extrabold text-[#ff4fa3]">
                         Perklyn
                       </span>{" "}
                       · now
@@ -4981,10 +4999,10 @@ function BusinessDashboard({
             <div className="flex items-start justify-between">
               <div>
                 <div className="page-kicker">In-store redemption</div>
-                <div className="mt-2 text-2xl font-extrabold tracking-[-.04em] text-[#123b30]">
+                <div className="mt-2 text-2xl font-extrabold tracking-[-.04em] text-[#3b1765]">
                   Verify claim code
                 </div>
-                <p className="mt-2 text-sm text-[#73827d]">
+                <p className="mt-2 text-sm text-[#84768c]">
                   Enter the code shown on the customer’s phone. Codes are valid
                   for 24 hours and can only be used once.
                 </p>
@@ -5272,6 +5290,7 @@ function CustomerDashboard({
         ...items,
         {
           ...result.business,
+          color: normalizeCardColor(result.business.color),
           points: result.membership.points,
           reward: result.membership.reward,
           progress: 0,
@@ -5290,7 +5309,7 @@ function CustomerDashboard({
     }
   }
   return (
-    <div className="min-h-screen bg-[#f5f8f6]">
+    <div className="min-h-screen bg-[#f8f3ff]">
       <DashboardHeader
         title="My loyalty wallet"
         subtitle="Customer portal"
@@ -5304,11 +5323,11 @@ function CustomerDashboard({
       <main className="dashboard-main">
         <section className="wallet-hero">
           <div className="relative z-10 max-w-[35rem]">
-            <div className="eyebrow text-[#eadb9d]">Your reward wallet</div>
+            <div className="eyebrow text-[#ffaddb]">Your reward wallet</div>
             <div className="mt-4 text-[clamp(2.3rem,4vw,3.8rem)] font-extrabold leading-none tracking-[-0.055em]">
               Welcome, {safeProfile.name.split(" ")[0]}.
             </div>
-            <p className="mt-5 text-[#c8d8d2]">
+            <p className="mt-5 text-[#d9c5e7]">
               {safeProfile.isNew
                 ? "Your new wallet is ready for its first business connection."
                 : "Your favorite places are all connected to this number."}
@@ -5317,7 +5336,7 @@ function CustomerDashboard({
               <span className="rounded-full bg-white/10 px-4 py-2">
                 {safeProfile.phone}
               </span>
-              <span className="rounded-full bg-[#d9bd61] px-4 py-2 text-[#133b30]">
+              <span className="rounded-full bg-[#ff59aa] px-4 py-2 text-[#3d1769]">
                 {total.toLocaleString()} points
               </span>
             </div>
@@ -5330,7 +5349,7 @@ function CustomerDashboard({
             <div className="page-title">Your loyalty cards</div>
           </div>
           <div className="flex items-center gap-3">
-            <span className="hidden text-sm text-[#74837d] sm:block">
+            <span className="hidden text-sm text-[#85778d] sm:block">
               {businesses.length} active memberships
             </span>
             <Button
@@ -5365,7 +5384,7 @@ function CustomerDashboard({
                   <div className="mini-logo">
                     <img src={business.logo} alt="" />
                   </div>
-                  <span className="text-xs font-extrabold tracking-[-.02em] text-[#d4b95e]">
+                  <span className="text-xs font-extrabold tracking-[-.02em] text-[#ff4fa3]">
                     Perklyn
                   </span>
                 </div>
@@ -5381,10 +5400,10 @@ function CustomerDashboard({
               <div className="p-5 text-left">
                 <div className="flex items-end justify-between">
                   <div>
-                    <div className="text-xs font-bold uppercase tracking-[.12em] text-[#87938f]">
+                    <div className="text-xs font-bold uppercase tracking-[.12em] text-[#96899f]">
                       Balance
                     </div>
-                    <div className="mt-1 text-2xl font-extrabold text-[#123b30]">
+                    <div className="mt-1 text-2xl font-extrabold text-[#3b1765]">
                       {business.points.toLocaleString()}{" "}
                       <small className="text-sm">pts</small>
                     </div>
@@ -5393,13 +5412,13 @@ function CustomerDashboard({
                     <Icon name="arrow" size={17} />
                   </i>
                 </div>
-                <div className="mt-4 h-1.5 overflow-hidden rounded-full bg-[#e7edea]">
+                <div className="mt-4 h-1.5 overflow-hidden rounded-full bg-[#ebdff4]">
                   <div
-                    className="h-full rounded-full bg-[#c2a84f]"
+                    className="h-full rounded-full bg-[#d83cff]"
                     style={{ width: `${business.progress}%` }}
                   />
                 </div>
-                <div className="mt-2 text-xs text-[#73817c]">
+                <div className="mt-2 text-xs text-[#84758b]">
                   {business.reward}
                 </div>
               </div>
@@ -5411,7 +5430,7 @@ function CustomerDashboard({
             <i>
               <Icon name="card" size={25} />
             </i>
-            <div className="text-lg font-extrabold text-[#1a4639]">
+            <div className="text-lg font-extrabold text-[#52247f]">
               No businesses connected yet
             </div>
             <p>
@@ -5520,11 +5539,11 @@ function CustomerDashboard({
               <div className="flex items-end justify-between">
                 <div>
                   <div className="page-kicker">Available for you</div>
-                  <div className="mt-1 text-lg font-extrabold text-[#153d32]">
+                  <div className="mt-1 text-lg font-extrabold text-[#45206f]">
                     Issued rewards
                   </div>
                 </div>
-                <span className="text-xs font-bold text-[#73817c]">
+                <span className="text-xs font-bold text-[#84758b]">
                   {selected.points} points available
                 </span>
               </div>
@@ -5557,7 +5576,7 @@ function CustomerDashboard({
               </div>
             </div>
             <div className="claim-history">
-              <div className="text-sm font-extrabold text-[#153d32]">
+              <div className="text-sm font-extrabold text-[#45206f]">
                 Claim history
               </div>
               {businessClaims.length === 0 ? (
@@ -5584,7 +5603,7 @@ function CustomerDashboard({
             </div>
             {businessTransactions.length > 0 && (
               <div className="claim-history">
-                <div className="text-sm font-extrabold text-[#153d32]">
+                <div className="text-sm font-extrabold text-[#45206f]">
                   Points activity
                 </div>
                 {businessTransactions.slice(0, 12).map((transaction) => (
@@ -5690,7 +5709,7 @@ function PasswordReset({ onComplete }: { onComplete: () => void }) {
   return (
     <main className="signin-shell">
       <section className="signin-story">
-        <div className="absolute inset-0 opacity-15 bg-[radial-gradient(circle_at_70%_20%,#e3ca72_0,transparent_34%),radial-gradient(circle_at_15%_80%,#4f8d78_0,transparent_38%)]" />
+        <div className="absolute inset-0 opacity-15 bg-[radial-gradient(circle_at_70%_20%,#ff70b9_0,transparent_34%),radial-gradient(circle_at_15%_80%,#4f8d78_0,transparent_38%)]" />
         <div className="relative z-10 flex h-full flex-col justify-between">
           <Brand light />
           <div className="max-w-[34rem] py-16 text-[clamp(2.8rem,5.7vw,5.5rem)] font-extrabold leading-[.95] tracking-[-0.06em] text-white">
@@ -5704,10 +5723,10 @@ function PasswordReset({ onComplete }: { onComplete: () => void }) {
           <div className="mb-10 lg:hidden">
             <Brand />
           </div>
-          <div className="text-3xl font-extrabold tracking-[-0.04em] text-[#123b30]">
+          <div className="text-3xl font-extrabold tracking-[-0.04em] text-[#3b1765]">
             Choose a new password
           </div>
-          <p className="mt-3 text-[#687a74]">
+          <p className="mt-3 text-[#7c6f84]">
             Use at least 10 characters to keep your Perklyn account secure.
           </p>
           <form onSubmit={updatePassword} className="mt-8 space-y-5">
@@ -5942,7 +5961,7 @@ function PerklynApp() {
           name: result.profile.businessName || "My Business",
           category: "New loyalty program",
           points: 0,
-          color: "from-[#0d4e3a] to-[#073127]",
+          color: cardColors[0].value,
           accent: "#e8c765",
           logo: "/perklyn-logo.svg",
           reward: "Create your first reward",
@@ -5951,6 +5970,10 @@ function PerklynApp() {
         },
       ]
     }
+    connectedBusinesses = connectedBusinesses.map((business) => ({
+      ...business,
+      color: normalizeCardColor(business.color),
+    }))
     setBusinessList(connectedBusinesses)
     setBusinessDirectory((directory) => [
       ...directory,
@@ -6264,7 +6287,7 @@ function PerklynApp() {
     )
   if (loading)
     return (
-      <div className="min-h-screen grid place-items-center bg-[#f5f8f6]">
+      <div className="min-h-screen grid place-items-center bg-[#f8f3ff]">
         <Brand />
         <div className="fixed mt-20 text-sm font-bold text-[#6f817a]">
           Synchronizing Perklyn…
