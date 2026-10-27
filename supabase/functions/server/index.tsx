@@ -228,6 +228,7 @@ const maskPhone = (value: string) => {
   return digits.length < 5 ? "••••" : `${digits.slice(0, 2)}${"•".repeat(Math.max(4, digits.length - 4))}${digits.slice(-2)}`;
 };
 const rfidCardKey = async (businessId: number, identifier: string) => `rfid-card:${businessId}:${await hashText(identifier.trim().toUpperCase())}`;
+const rfidRegistryKey = async (identifier: string) => `rfid-identifier:${await hashText(identifier.trim().toUpperCase())}`;
 const reconcileRfidTransaction = async (card: any, transaction: any, balance: number) => {
   const ownerState = await kv.get(`state:${card.ownerId}`) ?? {};
   ownerState.customers = (ownerState.customers ?? []).map((customer: any) =>
@@ -641,7 +642,23 @@ app.get(`${prefix}/pending-memberships`, async (c) => {
   const profile = await kv.get(`profile:${user.id}`);
   if (!profile?.phone) return c.json({ memberships: [] });
   const memberships = await kv.getByPrefix(`pending:${normalizePhone(profile.phone)}:`);
-  const hydrated = await Promise.all(memberships.map(async (membership: any) => ({ ...membership, business: await kv.get(`business:${membership.business.id}`) ?? membership.business })));
+  const hydrated = await Promise.all(memberships.map(async (membership: any) => {
+    const businessId = Number(membership.business.id);
+    const [business, cards] = await Promise.all([
+      kv.get(`business:${businessId}`),
+      kv.getByPrefix(`rfid-card:${businessId}:`),
+    ]);
+    const activeCard = cards.find((card: any) =>
+      card.ownerId === membership.ownerId &&
+      card.status === "active" &&
+      normalizePhone(card.phone ?? "") === normalizePhone(profile.phone)
+    );
+    return {
+      ...membership,
+      business: business ?? membership.business,
+      rfidCardNumber: activeCard?.maskedIdentifier,
+    };
+  }));
   return c.json({ memberships: hydrated });
 });
 
@@ -1011,7 +1028,6 @@ app.post(`${prefix}/rfid/cards/activate`, async (c) => {
   const businessId = Number(body.businessId);
   const identifier = String(body.cardIdentifier ?? "").trim().toUpperCase();
   const customerId = String(body.customerId ?? "");
-  const reassign = body.reassign === true;
   const replaceCardId = String(body.replaceCardId ?? "");
   if (!await ownedBusiness(businessId, user.id)) return c.json({ error: "You do not own this business." }, 403);
   if (!validRfidIdentifier(identifier)) return c.json({ error: "The reader returned an invalid card identifier." }, 400);
@@ -1022,6 +1038,7 @@ app.post(`${prefix}/rfid/cards/activate`, async (c) => {
   const membership = await kv.get(`pending:${normalizePhone(customer.phone)}:${businessId}`);
   if (!membership || membership.ownerId !== user.id) return c.json({ error: "This customer does not belong to the current business." }, 403);
   const key = await rfidCardKey(businessId, identifier);
+  const registryKey = await rfidRegistryKey(identifier);
   const now = new Date().toISOString();
   const card = {
     id: crypto.randomUUID(),
@@ -1046,13 +1063,17 @@ app.post(`${prefix}/rfid/cards/activate`, async (c) => {
   }
   const result = await nfcRpc("perklyn_activate_rfid_card", {
     p_card_key: key,
+    p_registry_key: registryKey,
     p_card_value: card,
     p_customer_id: customerId,
-    p_reassign: reassign,
+    p_owner_id: user.id,
+    p_business_id: businessId,
+    p_replaced_card_key: replacement ? `rfid-card:${businessId}:${replacement.identifierHash}` : null,
+    p_replaced_registry_key: replacement ? `rfid-identifier:${replacement.identifierHash}` : null,
   });
   if (result?.result === "already_linked") {
     return c.json({
-      error: "This card is already linked to another customer.",
+      error: "This RFID card is already issued to another business or customer. It must be replaced by its current business before it can be issued again.",
       conflict: {
         cardId: result.card?.id,
         customerName: result.card?.customerName,
@@ -1062,11 +1083,7 @@ app.post(`${prefix}/rfid/cards/activate`, async (c) => {
     }, 409);
   }
   if (result?.result === "already_active") return c.json({ error: "This card is already active for the selected customer.", card: result.card }, 409);
-  if (result?.result === "inactive_card") return c.json({ error: `This card is ${result.card?.status ?? "inactive"}. Secure reassignment confirmation is required.` }, 409);
-  if (replacement) {
-    const oldKey = `rfid-card:${businessId}:${replacement.identifierHash}`;
-    await kv.set(oldKey, { ...replacement, status: "replaced", replacedAt: now, replacedByCardId: card.id });
-  }
+  if (result?.result === "invalid_replacement") return c.json({ error: "The card being replaced is no longer active for this customer." }, 409);
   return c.json({ card: result.card, message: "Loyalty card activated successfully." }, 201);
 });
 

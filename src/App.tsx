@@ -60,6 +60,7 @@ type Business = {
   rewards: Reward[]
   progress: number
   transactions?: Activity[]
+  rfidCardNumber?: string
 }
 
 type Reward = {
@@ -106,6 +107,7 @@ type ServerMembership = {
   points: number
   reward: string
   transactions?: Activity[]
+  rfidCardNumber?: string
 }
 
 function mergeMembershipBusinesses(
@@ -118,6 +120,7 @@ function mergeMembershipBusinesses(
     reward: membership.reward,
     progress: 0,
     transactions: membership.transactions ?? [],
+    rfidCardNumber: membership.rfidCardNumber,
   }))
   const merged = [
     ...current.map(
@@ -2840,7 +2843,7 @@ function RfidWorkspace({
       setBusy(false)
     }
   }
-  const activateCard = async (reassign = false) => {
+  const activateCard = async () => {
     if (!selectedCustomer || !detectedIdentifier) return
     setBusy(true)
     setMessage("")
@@ -2852,7 +2855,6 @@ function RfidWorkspace({
           customerId: selectedCustomer.id,
           cardIdentifier: detectedIdentifier,
           replaceCardId: replaceCardId || undefined,
-          reassign,
         }),
       })
       setSuccess({
@@ -2865,15 +2867,6 @@ function RfidWorkspace({
     } catch (error) {
       const text =
         error instanceof Error ? error.message : "Unable to activate this card."
-      if (
-        (text.includes("already linked") ||
-          text.includes("Secure reassignment")) &&
-        window.confirm(`${text} Reassign it to ${selectedCustomer.name}?`)
-      ) {
-        setBusy(false)
-        activateCard(true)
-        return
-      }
       setMessage(text)
     } finally {
       setBusy(false)
@@ -3361,7 +3354,7 @@ function RfidWorkspace({
                         <Button
                           disabled={busy}
                           className="w-full justify-center"
-                          onClick={() => activateCard(false)}
+                          onClick={() => activateCard()}
                         >
                           <Icon name="check" size={18} />
                           {busy
@@ -5167,6 +5160,11 @@ function CustomerDashboard({
     )
     if (business) setSelected(business)
   }, [businesses, notificationBusinessId])
+  useEffect(() => {
+    if (!selected) return
+    const refreshed = businesses.find((business) => business.id === selected.id)
+    if (refreshed && refreshed !== selected) setSelected(refreshed)
+  }, [businesses, selected])
   const claimReward = async (reward: Reward) => {
     if (!selected || selected.points < reward.points) return
     const businessId = selected.id
@@ -5456,35 +5454,38 @@ function CustomerDashboard({
                     <img src={selected.logo} alt="" />
                   </div>
                   <div className="text-right">
-                    <div className="text-xs font-extrabold tracking-[-.02em] text-[#d4b95e]">
-                      Perklyn
+                    <div className="text-[.58rem] font-bold uppercase tracking-[.18em] text-white/50">
+                      Business
                     </div>
-                    <div className="mt-1 text-sm font-bold text-white">
+                    <div className="mt-1 text-base font-extrabold uppercase tracking-[.04em] text-white">
                       {selected.name}
                     </div>
                   </div>
                 </div>
                 <div>
-                  <div className="text-[.62rem] font-bold uppercase tracking-[.18em] text-white/50">
-                    Available balance
+                  <div className="text-[.58rem] font-bold uppercase tracking-[.18em] text-white/50">
+                    RFID card number
                   </div>
-                  <div className="mt-1 text-5xl font-extrabold tracking-[-.05em] text-white">
-                    {selected.points.toLocaleString()}
-                    <span className="ml-2 text-base font-semibold text-[#ead58d]">
-                      POINTS
-                    </span>
+                  <div className="mt-2 font-mono text-[clamp(1.2rem,5vw,1.75rem)] font-medium tracking-[.12em] text-white">
+                    {selected.rfidCardNumber ?? "XXXX XXXX XXXX XXXX"}
                   </div>
                 </div>
-                <div className="grid grid-cols-2">
+                <div className="grid grid-cols-[1.4fr_1fr_auto] gap-4">
                   <div>
-                    <div className="card-label">Member</div>
+                    <div className="card-label">Customer name</div>
                     <div className="card-value">
                       {safeProfile.name.toUpperCase()}
                     </div>
                   </div>
                   <div>
-                    <div className="card-label">Phone</div>
+                    <div className="card-label">Customer number</div>
                     <div className="card-value">{safeProfile.phone}</div>
+                  </div>
+                  <div className="text-right">
+                    <div className="card-label">Points</div>
+                    <div className="mt-1 text-lg font-extrabold leading-none text-[#ead58d]">
+                      {selected.points.toLocaleString()}
+                    </div>
                   </div>
                 </div>
               </div>
