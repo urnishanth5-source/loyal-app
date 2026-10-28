@@ -5508,3 +5508,1371 @@ body::-webkit-scrollbar {
   width: 0;
   height: 0;
 }
+
+/* Business billing workspace */
+.billing-workspace {
+  position: fixed;
+  z-index: 120;
+  inset: 0;
+  overflow-y: auto;
+  color: #f8efff;
+  background:
+    radial-gradient(circle at 85% 12%, rgb(255 79 163 / 22%), transparent 28rem),
+    radial-gradient(circle at 12% 78%, rgb(182 44 255 / 24%), transparent 32rem),
+    linear-gradient(150deg, #210c3d, #481474 54%, #2b0d4f);
+}
+
+.billing-workspace-header {
+  position: sticky;
+  z-index: 5;
+  top: 0;
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 1rem;
+  padding: 1rem clamp(1rem, 4vw, 3rem);
+  border-bottom: 1px solid rgb(255 255 255 / 14%);
+  background: rgb(34 10 62 / 78%);
+  backdrop-filter: blur(24px);
+}
+
+.billing-workspace-header > div {
+  display: grid;
+  justify-items: center;
+  gap: .1rem;
+}
+
+.billing-workspace-header strong {
+  font-size: 1.05rem;
+}
+
+.billing-workspace-header span {
+  color: rgb(240 220 255 / 68%);
+  font-size: .7rem;
+}
+
+.billing-workspace-header nav {
+  display: flex;
+  gap: .35rem;
+}
+
+.billing-workspace-header button,
+.billing-section-head button,
+.billing-cart-line button {
+  border: 0;
+  color: #eadcf6;
+  background: transparent;
+  font-weight: 800;
+}
+
+.billing-workspace-header nav button,
+.billing-back {
+  padding: .7rem .9rem;
+  border-radius: .8rem;
+}
+
+.billing-workspace-header nav button.active,
+.billing-workspace-header nav button:hover,
+.billing-back:hover {
+  color: white;
+  background: rgb(255 255 255 / 12%);
+}
+
+.billing-workspace-main {
+  width: min(calc(100% - 2rem), 88rem);
+  margin: 0 auto;
+  padding: 2rem 0 6rem;
+}
+
+.billing-message {
+  margin-bottom: 1rem;
+  padding: .85rem 1rem;
+  border: 1px solid rgb(255 152 218 / 25%);
+  border-radius: 1rem;
+  color: #ffe4f5;
+  background: rgb(255 79 163 / 12%);
+  font-size: .78rem;
+  font-weight: 800;
+}
+
+.billing-checkout-grid,
+.billing-management-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) minmax(24rem, .9fr);
+  gap: 1rem;
+  align-items: start;
+}
+
+.billing-management-grid {
+  grid-template-columns: minmax(20rem, .8fr) minmax(25rem, 1.2fr);
+}
+
+.billing-management-grid.catalog-list-only {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.billing-catalog-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: .5rem;
+}
+
+.billing-file-input {
+  display: none;
+}
+
+.billing-import-preview {
+  display: grid;
+  grid-template-columns: minmax(12rem, .8fr) minmax(14rem, 1fr) auto;
+  align-items: center;
+  gap: 1rem;
+  margin-bottom: 1rem;
+  padding: 1rem;
+  border: 1px solid rgb(255 139 203 / 30%);
+  border-radius: 1rem;
+  background:
+    radial-gradient(circle at 0 0, rgb(182 44 255 / 14%), transparent 45%),
+    rgb(255 255 255 / 5%);
+}
+
+.billing-import-preview > div:first-child {
+  display: grid;
+  gap: .2rem;
+}
+
+.billing-import-preview > div:first-child span {
+  color: #ff8bcb;
+  font-size: .62rem;
+  font-weight: 900;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+}
+
+.billing-import-preview > div:first-child b {
+  color: white;
+  overflow-wrap: anywhere;
+}
+
+.billing-import-preview small {
+  color: rgb(237 217 249 / 62%);
+  font-size: .68rem;
+  line-height: 1.45;
+}
+
+.billing-import-progress {
+  color: #ff9bd4 !important;
+  font-weight: 800;
+}
+
+.billing-import-preview ul {
+  display: grid;
+  gap: .3rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.billing-import-preview li {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  color: #eadcf6;
+  font-size: .68rem;
+}
+
+.billing-import-preview li b {
+  color: #ff9bd4;
+}
+
+.billing-import-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: .5rem;
+}
+
+.billing-catalog-filters {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr));
+  gap: .6rem;
+  margin-bottom: 1rem;
+}
+
+.billing-catalog-filters > input:first-child {
+  grid-column: span 2;
+}
+
+.billing-clear-filters {
+  min-height: 2.7rem;
+  border: 1px solid rgb(255 255 255 / 15%);
+  border-radius: .8rem;
+  color: #f4dced;
+  background: rgb(255 255 255 / 5%);
+  font-size: .7rem;
+  font-weight: 800;
+}
+
+.billing-clear-filters:hover {
+  border-color: rgb(255 139 203 / 45%);
+  color: white;
+  background: rgb(255 139 203 / 10%);
+}
+
+.billing-panel,
+.billing-empty,
+.billing-success {
+  border: 1px solid rgb(255 255 255 / 16%);
+  border-radius: 1.4rem;
+  background: linear-gradient(145deg, rgb(255 255 255 / 12%), rgb(255 255 255 / 6%));
+  box-shadow: 0 1.5rem 4rem rgb(20 3 38 / 25%), inset 0 1px 0 rgb(255 255 255 / 14%);
+  backdrop-filter: blur(22px);
+}
+
+.billing-panel {
+  padding: 1.2rem;
+}
+
+.billing-section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.billing-section-head > div {
+  display: grid;
+  gap: .15rem;
+}
+
+.billing-section-head span {
+  color: #ff8bcb;
+  font-size: .62rem;
+  font-weight: 900;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+}
+
+.billing-section-head b {
+  color: white;
+}
+
+.billing-panel .field,
+.billing-panel input,
+.billing-panel select {
+  min-width: 0;
+  border: 1px solid rgb(255 255 255 / 18%);
+  color: white;
+  background: rgb(255 255 255 / 9%);
+}
+
+.billing-panel select option {
+  color: #28103f;
+}
+
+.billing-product-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: .7rem;
+}
+
+.billing-search-empty {
+  grid-column: 1 / -1;
+  display: grid;
+  min-height: 7rem;
+  place-items: center;
+  padding: 1rem;
+  border: 1px dashed rgb(255 255 255 / 16%);
+  border-radius: 1rem;
+  color: #d9c6e8;
+  background: rgb(255 255 255 / 4%);
+  font-size: .74rem;
+  line-height: 1.6;
+  text-align: center;
+}
+
+.billing-product {
+  display: grid;
+  min-height: 8rem;
+  align-content: space-between;
+  gap: .4rem;
+  padding: 1rem;
+  border: 1px solid rgb(255 255 255 / 14%);
+  border-radius: 1rem;
+  color: white;
+  background: linear-gradient(145deg, rgb(182 44 255 / 22%), rgb(255 79 163 / 10%));
+  text-align: left;
+}
+
+.billing-product:hover {
+  border-color: rgb(255 125 203 / 55%);
+  transform: translateY(-1px);
+}
+
+.billing-product:disabled {
+  cursor: not-allowed;
+  opacity: .48;
+  transform: none;
+}
+
+.billing-product span,
+.billing-list small,
+.billing-sales-list small,
+.billing-selected-customer span,
+.billing-customer-result span,
+.billing-cart-line span {
+  color: rgb(237 217 249 / 68%);
+  font-size: .68rem;
+}
+
+.billing-product strong {
+  color: #ff92cf;
+}
+
+.billing-customer-search {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: .6rem;
+  margin-top: 1rem;
+}
+
+.billing-scan-row {
+  display: grid;
+  grid-template-columns: minmax(10rem, 1fr) auto auto;
+  gap: .5rem;
+  margin-bottom: 1rem;
+}
+
+.billing-scan-row input {
+  width: 100%;
+  padding: .7rem .8rem;
+  border-radius: .75rem;
+}
+
+.billing-custom-item {
+  display: grid;
+  grid-template-columns: 1.2fr .7fr .7fr .7fr auto;
+  align-items: end;
+  gap: .5rem;
+  margin-top: 1rem;
+  padding: .8rem;
+  border: 1px solid rgb(255 255 255 / 12%);
+  border-radius: .9rem;
+  background: rgb(255 255 255 / 5%);
+}
+
+.billing-barcode-field {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  gap: .5rem;
+}
+
+.billing-barcode-card {
+  display: grid;
+  min-height: 6rem;
+  place-items: center;
+  overflow: hidden;
+  padding: .65rem;
+  border-radius: .9rem;
+  background: white;
+}
+
+.billing-barcode-preview {
+  width: min(100%, 24rem);
+  height: auto;
+}
+
+.billing-custom-item b {
+  grid-column: 1 / -1;
+  color: #ff9bd4;
+  font-size: .7rem;
+}
+
+.billing-custom-item input,
+.billing-custom-item select {
+  width: 100%;
+  padding: .65rem;
+  border-radius: .65rem;
+}
+
+.billing-selected-customer,
+.billing-customer-result {
+  display: grid;
+  grid-column: 1 / -1;
+  gap: .2rem;
+  padding: .8rem;
+  border: 1px solid rgb(255 255 255 / 14%);
+  border-radius: .8rem;
+  color: white;
+  background: rgb(255 255 255 / 8%);
+  text-align: left;
+}
+
+.billing-add-customer {
+  display: grid;
+  grid-column: 1 / -1;
+  grid-template-columns: 1fr 1fr auto;
+  align-items: end;
+  gap: .55rem;
+  padding: .8rem;
+  border: 1px solid rgb(255 125 203 / 24%);
+  border-radius: .85rem;
+  background: rgb(255 79 163 / 8%);
+}
+
+.billing-add-customer > b {
+  grid-column: 1 / -1;
+  color: #ff9bd4;
+  font-size: .72rem;
+}
+
+.billing-phone-field {
+  display: grid;
+  grid-template-columns: minmax(8rem, .9fr) auto minmax(9rem, 1.1fr);
+  align-items: center;
+  overflow: hidden;
+  border: 1px solid rgb(255 255 255 / 18%);
+  border-radius: .75rem;
+  background: rgb(255 255 255 / 9%);
+}
+
+.billing-phone-field select,
+.billing-phone-field input {
+  width: 100%;
+  min-width: 0;
+  border: 0;
+  background: transparent;
+}
+
+.billing-phone-field span {
+  color: #ff9bd4;
+  font-size: .72rem;
+  font-weight: 900;
+}
+
+.billing-cart {
+  position: sticky;
+  top: 6rem;
+}
+
+.billing-cart-lines {
+  display: grid;
+  gap: .55rem;
+  max-height: 22rem;
+  overflow-y: auto;
+}
+
+.billing-cart-line {
+  display: grid;
+  grid-template-columns: 1fr 4.5rem 6rem auto;
+  align-items: center;
+  gap: .55rem;
+  padding: .75rem;
+  border: 1px solid rgb(255 255 255 / 10%);
+  border-radius: .8rem;
+  background: rgb(255 255 255 / 6%);
+}
+
+.billing-cart-line > div {
+  display: grid;
+}
+
+.billing-cart-line input,
+.billing-payment-row input,
+.billing-payment-row select,
+.billing-discount input {
+  width: 100%;
+  padding: .62rem;
+  border-radius: .65rem;
+}
+
+.billing-cart-line button {
+  color: #ff9bd4;
+  font-size: .68rem;
+}
+
+.billing-cart-discounts {
+  display: grid;
+  gap: .65rem;
+  margin-top: .8rem;
+  padding: .8rem;
+  border: 1px solid rgb(255 255 255 / 10%);
+  border-radius: .85rem;
+  background: rgb(255 255 255 / 4%);
+}
+
+.billing-discount {
+  display: grid;
+  grid-template-columns: 1fr 8rem;
+  align-items: center;
+  gap: 1rem;
+  color: #e8d7f2;
+  font-size: .75rem;
+  font-weight: 800;
+}
+
+.billing-cart-discounts > small {
+  color: #d9c6e8;
+  font-size: .68rem;
+  text-align: right;
+}
+
+.billing-cart-discounts > small b {
+  color: #ff9bd4;
+}
+
+.billing-totals {
+  display: grid;
+  gap: .4rem;
+  margin-block: 1rem;
+  padding: 1rem;
+  border-radius: 1rem;
+  background: rgb(30 8 54 / 45%);
+}
+
+.billing-totals span,
+.billing-totals strong {
+  display: flex;
+  justify-content: space-between;
+  color: #d9c6e8;
+  font-size: .75rem;
+}
+
+.billing-totals strong {
+  padding-top: .6rem;
+  border-top: 1px solid rgb(255 255 255 / 14%);
+  color: white;
+  font-size: 1rem;
+}
+
+.billing-payments {
+  display: grid;
+  gap: .55rem;
+  margin-bottom: 1rem;
+}
+
+.billing-payment-row {
+  display: grid;
+  grid-template-columns: 7rem 1fr 1fr;
+  gap: .5rem;
+}
+
+.billing-empty,
+.billing-success {
+  display: grid;
+  max-width: 42rem;
+  min-height: 20rem;
+  place-items: center;
+  align-content: center;
+  gap: .75rem;
+  margin: 4rem auto;
+  padding: 2rem;
+  text-align: center;
+}
+
+.billing-empty.compact {
+  min-height: 8rem;
+  margin: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.billing-success > span {
+  color: #ff8bcb;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.billing-success > strong {
+  font-size: 1.7rem;
+}
+
+.billing-success > b {
+  color: #ff9bd4;
+  font-size: 2.5rem;
+}
+
+.billing-success > div {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: .6rem;
+}
+
+.billing-list,
+.billing-sales-list {
+  display: grid;
+  gap: .55rem;
+}
+
+.billing-sales-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: .5rem;
+}
+
+.billing-sales-row > button:first-child {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  align-items: center;
+  gap: .8rem;
+  padding: .9rem;
+  border: 1px solid rgb(255 255 255 / 11%);
+  border-radius: .85rem;
+  color: white;
+  background: rgb(255 255 255 / 6%);
+  text-align: left;
+}
+
+.billing-invoice-row-actions {
+  display: grid;
+  grid-template-columns: repeat(2, auto);
+  gap: .4rem;
+}
+
+.billing-edit-invoice,
+.billing-delete-invoice {
+  padding: .7rem .9rem;
+  border: 1px solid rgb(255 139 203 / 25%);
+  border-radius: .85rem;
+  color: #ffb2dc;
+  background: rgb(255 79 163 / 8%);
+  font-size: .68rem;
+  font-weight: 800;
+}
+
+.billing-delete-invoice {
+  border-color: rgb(255 112 112 / 26%);
+  color: #ffb3b3;
+  background: rgb(142 22 45 / 15%);
+}
+
+.billing-edit-invoice:disabled,
+.billing-delete-invoice:disabled {
+  cursor: not-allowed;
+  opacity: .4;
+}
+
+.billing-list > button,
+.billing-sales-list > button {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: .8rem;
+  padding: .9rem;
+  border: 1px solid rgb(255 255 255 / 11%);
+  border-radius: .85rem;
+  color: white;
+  background: rgb(255 255 255 / 6%);
+  text-align: left;
+}
+
+.billing-sales-list > button:hover {
+  border-color: rgb(255 125 203 / 48%);
+}
+
+.billing-list span,
+.billing-sales-list span {
+  display: grid;
+  gap: .18rem;
+}
+
+.billing-sales-workspace {
+  display: grid;
+  gap: 1rem;
+}
+
+.billing-report-workspace {
+  display: grid;
+  gap: 1rem;
+}
+
+.billing-report-options {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: .8rem;
+  max-width: 34rem;
+}
+
+.billing-report-options .btn {
+  min-height: 5rem;
+  font-size: .88rem;
+}
+
+.billing-report-options .billing-range-active {
+  border-color: rgb(255 139 203 / 70%);
+  color: white;
+  background: linear-gradient(135deg, #b62cff, #ff4fa3);
+  box-shadow: 0 .55rem 1.4rem rgb(182 44 255 / 20%);
+}
+
+.billing-report-unit-totals {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: .7rem;
+  margin-bottom: 1rem;
+}
+
+.billing-report-unit-totals > div {
+  display: grid;
+  gap: .2rem;
+  padding: 1rem;
+  border: 1px solid rgb(255 255 255 / 12%);
+  border-radius: 1rem;
+  background:
+    radial-gradient(circle at 100% 0, rgb(255 79 163 / 14%), transparent 48%),
+    rgb(255 255 255 / 5%);
+}
+
+.billing-report-unit-totals span,
+.billing-report-unit-totals small {
+  color: #d9c6e8;
+  font-size: .65rem;
+}
+
+.billing-report-unit-totals span {
+  font-weight: 800;
+  letter-spacing: .07em;
+  text-transform: uppercase;
+}
+
+.billing-report-unit-totals strong {
+  color: white;
+  font-size: 1.5rem;
+  letter-spacing: -.03em;
+}
+
+.billing-report-unit-totals small {
+  color: rgb(237 217 249 / 52%);
+}
+
+.billing-report-period {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(10rem, 1fr)) auto;
+  align-items: end;
+  gap: .6rem;
+  margin-bottom: 1rem;
+}
+
+.billing-report-period label {
+  display: grid;
+  gap: .35rem;
+}
+
+.billing-report-period label > span {
+  color: #d9c6e8;
+  font-size: .65rem;
+  font-weight: 800;
+  letter-spacing: .07em;
+  text-transform: uppercase;
+}
+
+.billing-report-period input[type="date"] {
+  color-scheme: dark;
+}
+
+.billing-report-period .btn {
+  min-height: 2.7rem;
+}
+
+.billing-stock-report-list > div:not(.billing-search-empty) {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: .8rem;
+  padding: .9rem;
+  border: 1px solid rgb(255 255 255 / 11%);
+  border-radius: .85rem;
+  color: white;
+  background: rgb(255 255 255 / 6%);
+}
+
+.billing-stock-report-list > div > span {
+  display: grid;
+  gap: .18rem;
+}
+
+.billing-stock-report-list small {
+  color: rgb(237 217 249 / 68%);
+  font-size: .68rem;
+}
+
+.billing-stock-report-list strong {
+  color: #ff9bd4;
+  font-size: .78rem;
+}
+
+.billing-sold-report-list strong {
+  display: grid;
+  gap: .15rem;
+  text-align: right;
+}
+
+.billing-sold-report-list strong small {
+  color: rgb(237 217 249 / 68%);
+  font-size: .66rem;
+}
+
+.billing-sales-overview {
+  overflow: hidden;
+}
+
+.billing-sales-ranges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .5rem;
+  margin-bottom: 1rem;
+}
+
+.billing-sales-ranges .btn {
+  min-height: 2.4rem;
+  padding: .55rem .85rem;
+  font-size: .68rem;
+}
+
+.billing-sales-ranges .billing-range-active {
+  border-color: rgb(255 139 203 / 70%);
+  color: white;
+  background: linear-gradient(135deg, #b62cff, #ff4fa3);
+  box-shadow: 0 .55rem 1.4rem rgb(182 44 255 / 20%);
+}
+
+.billing-sales-metrics {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: .7rem;
+  margin-bottom: 1rem;
+}
+
+.billing-sales-metrics > div {
+  display: grid;
+  gap: .3rem;
+  min-height: 6.5rem;
+  align-content: center;
+  padding: 1rem;
+  border: 1px solid rgb(255 255 255 / 12%);
+  border-radius: 1rem;
+  background:
+    radial-gradient(circle at 100% 0, rgb(255 79 163 / 16%), transparent 48%),
+    rgb(255 255 255 / 6%);
+}
+
+.billing-sales-metrics span,
+.billing-sales-chart-head span {
+  color: #d9c6e8;
+  font-size: .65rem;
+  font-weight: 800;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+
+.billing-sales-metrics strong {
+  color: white;
+  font-size: clamp(1.15rem, 2.4vw, 1.8rem);
+  letter-spacing: -.035em;
+}
+
+.billing-sales-chart {
+  padding: 1rem;
+  border: 1px solid rgb(255 255 255 / 12%);
+  border-radius: 1rem;
+  background: rgb(23 5 45 / 28%);
+  overflow-x: auto;
+}
+
+.billing-sales-chart-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: .5rem;
+}
+
+.billing-sales-chart-head small {
+  color: rgb(237 217 249 / 55%);
+  font-size: .65rem;
+}
+
+.billing-sales-chart svg {
+  display: block;
+  width: 100%;
+  min-width: 38rem;
+  height: auto;
+}
+
+.billing-chart-grid {
+  stroke: rgb(255 255 255 / 10%);
+  stroke-width: 1;
+}
+
+.billing-chart-axis,
+.billing-chart-label {
+  fill: rgb(237 217 249 / 60%);
+  font-size: 11px;
+}
+
+.billing-chart-axis {
+  text-anchor: end;
+}
+
+.billing-chart-label {
+  text-anchor: middle;
+}
+
+.billing-chart-area {
+  fill: rgb(255 79 163 / 12%);
+}
+
+.billing-chart-line {
+  fill: none;
+  stroke: #ff69b4;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 4;
+}
+
+.billing-chart-point {
+  fill: #ffb2dc;
+  stroke: #7a1bb6;
+  stroke-width: 3;
+  transition: r .16s ease;
+}
+
+.billing-chart-point:hover {
+  r: 7;
+}
+
+.billing-form,
+.billing-settings {
+  display: grid;
+  gap: .85rem;
+}
+
+.billing-settings {
+  max-width: 62rem;
+  margin: 0 auto;
+}
+
+.billing-form label,
+.billing-settings label {
+  display: grid;
+  gap: .35rem;
+  color: #eadcf6;
+  font-size: .72rem;
+  font-weight: 800;
+}
+
+.billing-form-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr));
+  gap: .75rem;
+}
+
+.billing-receipt-footer-setting textarea {
+  min-height: 6rem;
+  resize: vertical;
+}
+
+.billing-receipt-footer-setting small {
+  color: rgb(237 217 249 / 55%);
+  font-size: .65rem;
+  font-weight: 600;
+}
+
+.billing-custom-fields-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr));
+  gap: .75rem;
+  padding: .8rem;
+  border: 1px solid rgb(255 255 255 / 10%);
+  border-radius: .85rem;
+  background: rgb(255 255 255 / 4%);
+}
+
+.billing-option-picker {
+  display: grid;
+  gap: .45rem;
+}
+
+.billing-option-picker > span {
+  color: #eadcf6;
+  font-size: .72rem;
+  font-weight: 800;
+}
+
+.billing-option-picker > div {
+  display: flex;
+  min-height: 2.4rem;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: .4rem;
+}
+
+.billing-option-picker button {
+  padding: .48rem .7rem;
+  border: 1px solid rgb(255 255 255 / 15%);
+  border-radius: 999px;
+  color: #e8d7f2;
+  background: rgb(255 255 255 / 7%);
+  font-size: .68rem;
+  font-weight: 800;
+}
+
+.billing-option-picker button:hover,
+.billing-option-picker button.selected {
+  border-color: rgb(255 127 204 / 62%);
+  color: white;
+  background: linear-gradient(135deg, rgb(255 79 163 / 48%), rgb(182 44 255 / 48%));
+}
+
+.billing-option-picker small {
+  color: #cbb6dc;
+}
+
+.billing-check {
+  display: flex !important;
+  align-items: center;
+  grid-template-columns: auto 1fr;
+}
+
+.billing-custom-settings {
+  display: grid;
+  gap: .75rem;
+  padding: 1rem;
+  border: 1px solid rgb(255 255 255 / 12%);
+  border-radius: 1rem;
+  background: rgb(255 255 255 / 5%);
+}
+
+.billing-custom-settings > div:first-child {
+  display: grid;
+  gap: .2rem;
+}
+
+.billing-custom-settings span {
+  color: #d9c6e8;
+  font-size: .7rem;
+}
+
+.billing-custom-setting-entry {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: .6rem;
+}
+
+.billing-custom-setting-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .45rem;
+}
+
+.billing-option-settings-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr));
+  gap: .8rem;
+}
+
+.billing-option-setting {
+  display: grid;
+  align-content: start;
+  gap: .55rem;
+  padding: .8rem;
+  border: 1px solid rgb(255 255 255 / 9%);
+  border-radius: .8rem;
+  background: rgb(255 255 255 / 4%);
+}
+
+.billing-option-setting > b {
+  color: #ff9bd4;
+  font-size: .72rem;
+}
+
+.billing-custom-setting-list > span {
+  display: flex;
+  align-items: center;
+  gap: .4rem;
+  padding: .45rem .65rem;
+  border-radius: 999px;
+  color: white;
+  background: rgb(182 44 255 / 22%);
+  font-weight: 800;
+}
+
+.billing-custom-setting-list button {
+  border: 0;
+  color: #ff9bd4;
+  background: transparent;
+}
+
+.billing-check input {
+  width: 1rem;
+}
+
+.billing-sales-list > button {
+  grid-template-columns: 1fr auto auto;
+}
+
+.billing-sales-list em {
+  color: #ff9bd4;
+  font-size: .65rem;
+  font-style: normal;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.billing-detail-backdrop {
+  position: fixed;
+  z-index: 140;
+  display: grid;
+  inset: 0;
+  place-items: center;
+  padding: 1rem;
+  background: rgb(20 5 36 / 72%);
+  backdrop-filter: blur(12px);
+}
+
+.billing-detail {
+  width: min(100%, 48rem);
+  max-height: calc(100vh - 2rem);
+  overflow-y: auto;
+  padding: 1.5rem;
+  border: 1px solid rgb(255 255 255 / 18%);
+  border-radius: 1.4rem;
+  background: linear-gradient(145deg, rgb(83 22 142 / 96%), rgb(35 10 63 / 96%));
+  box-shadow: 0 2rem 6rem rgb(10 2 20 / 45%);
+}
+
+.billing-scanner {
+  width: min(100%, 36rem);
+  padding: 1.2rem;
+  border: 1px solid rgb(255 255 255 / 18%);
+  border-radius: 1.4rem;
+  background: linear-gradient(145deg, rgb(83 22 142 / 96%), rgb(35 10 63 / 96%));
+}
+
+.billing-scanner video {
+  display: block;
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  object-fit: cover;
+  border-radius: 1rem;
+  background: #170727;
+}
+
+.billing-scanner small {
+  display: block;
+  margin-top: .75rem;
+  color: #d9c6e8;
+  text-align: center;
+}
+
+.billing-invoice-meta {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: .6rem;
+}
+
+.billing-invoice-meta span {
+  display: grid;
+  gap: .25rem;
+  padding: .75rem;
+  border-radius: .8rem;
+  color: #d7c3e6;
+  background: rgb(255 255 255 / 7%);
+  font-size: .65rem;
+}
+
+.billing-invoice-meta b {
+  color: white;
+  font-size: .75rem;
+}
+
+.billing-detail-lines {
+  display: grid;
+  gap: .5rem;
+  margin-top: 1rem;
+}
+
+.billing-detail-lines > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: .75rem;
+  border-bottom: 1px solid rgb(255 255 255 / 10%);
+}
+
+.billing-edit-lines > div {
+  align-items: end;
+}
+
+.billing-invoice-edit-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(6rem, 1fr));
+  gap: .5rem;
+}
+
+.billing-invoice-edit-fields label {
+  display: grid;
+  gap: .25rem;
+  color: #d9c6e8;
+  font-size: .62rem;
+  font-weight: 800;
+}
+
+.billing-invoice-edit-fields input {
+  width: 100%;
+  min-width: 0;
+  padding: .6rem;
+  border: 1px solid rgb(255 255 255 / 18%);
+  border-radius: .65rem;
+  color: white;
+  background: rgb(255 255 255 / 9%);
+}
+
+.billing-detail-lines span {
+  display: grid;
+}
+
+.billing-detail-lines small,
+.billing-credit-list span {
+  color: #d9c6e8;
+  font-size: .68rem;
+}
+
+.billing-credit-list {
+  display: grid;
+  gap: .35rem;
+  padding: .9rem;
+  border-radius: .8rem;
+  background: rgb(255 79 163 / 10%);
+}
+
+.billing-detail-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: .6rem;
+  margin-top: 1rem;
+}
+
+@media (max-width: 900px) {
+  .billing-workspace-header {
+    grid-template-columns: 1fr auto;
+  }
+
+  .billing-workspace-header > div {
+    display: none;
+  }
+
+  .billing-checkout-grid,
+  .billing-management-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .billing-cart {
+    position: static;
+  }
+
+  .billing-product-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 620px) {
+  .billing-workspace-header {
+    display: flex;
+    overflow-x: auto;
+  }
+
+  .billing-workspace-header nav {
+    margin-left: auto;
+  }
+
+  .billing-workspace-header nav button,
+  .billing-back {
+    white-space: nowrap;
+  }
+
+  .billing-workspace-main {
+    width: min(calc(100% - 1rem), 88rem);
+    padding-top: .8rem;
+  }
+
+  .billing-product-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .billing-cart-line {
+    grid-template-columns: 1fr 4.2rem;
+  }
+
+  .billing-cart-line input:nth-of-type(2),
+  .billing-cart-line button {
+    grid-column: auto;
+  }
+
+  .billing-payment-row {
+    grid-template-columns: 1fr;
+  }
+
+  .billing-scan-row,
+  .billing-barcode-field,
+  .billing-custom-setting-entry {
+    grid-template-columns: 1fr;
+  }
+
+  .billing-customer-search,
+  .billing-add-customer {
+    grid-template-columns: 1fr;
+  }
+
+  .billing-add-customer > b {
+    grid-column: 1;
+  }
+
+  .billing-phone-field {
+    grid-template-columns: minmax(7rem, .8fr) auto minmax(8rem, 1.2fr);
+  }
+
+  .billing-custom-item {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .billing-custom-item .btn {
+    grid-column: 1 / -1;
+  }
+
+  .billing-sales-list > button {
+    grid-template-columns: 1fr auto;
+  }
+
+  .billing-sales-metrics {
+    grid-template-columns: 1fr;
+  }
+
+  .billing-report-unit-totals {
+    grid-template-columns: 1fr;
+  }
+
+  .billing-report-period {
+    grid-template-columns: 1fr;
+  }
+
+  .billing-import-preview {
+    grid-template-columns: 1fr;
+  }
+
+  .billing-import-actions {
+    justify-content: flex-start;
+  }
+
+  .billing-sales-list em {
+    grid-column: 1;
+  }
+
+  .billing-invoice-meta {
+    grid-template-columns: 1fr 1fr;
+  }
+}

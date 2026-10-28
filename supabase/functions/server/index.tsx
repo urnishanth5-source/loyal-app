@@ -1,47 +1,57 @@
-import { Hono } from "npm:hono";
-import { cors } from "npm:hono/cors";
-import { logger } from "npm:hono/logger";
-import { createClient } from "jsr:@supabase/supabase-js@2.49.8";
-import webpush from "npm:web-push@3.6.7";
-import * as kv from "./kv_store.tsx";
+import { Hono } from "npm:hono"
+import { cors } from "npm:hono/cors"
+import { logger } from "npm:hono/logger"
+import { createClient } from "jsr:@supabase/supabase-js@2.49.8"
+import webpush from "npm:web-push@3.6.7"
+import * as kv from "./kv_store.tsx"
 
-const app = new Hono();
-const prefix = "/make-server-3a123995";
-const adminClient = () => createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
-const normalizePhone = (phone: string) => phone.replace(/\D/g, "");
-const legacyAccountEmail = (phone: string, role: string) => `${role}_phone_${normalizePhone(phone)}@loyaltyhub.local`;
+const app = new Hono()
+const prefix = "/make-server-3a123995"
+const adminClient = () =>
+  createClient(
+    Deno.env.get("SUPABASE_URL")!,
+    Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
+  )
+const normalizePhone = (phone: string) => phone.replace(/\D/g, "")
+const legacyAccountEmail = (phone: string, role: string) =>
+  `${role}_phone_${normalizePhone(phone)}@loyaltyhub.local`
 
 const authenticatedUser = async (c: any) => {
-  const token = c.req.header("Authorization")?.replace(/^Bearer\s+/i, "");
-  if (!token) return null;
-  const { data, error } = await adminClient().auth.getUser(token);
-  return error ? null : data.user;
-};
+  const token = c.req.header("Authorization")?.replace(/^Bearer\s+/i, "")
+  if (!token) return null
+  const { data, error } = await adminClient().auth.getUser(token)
+  return error ? null : data.user
+}
 
-const checkRateLimit = async (bucket: string, identifier: string, limit: number, windowMs: number) => {
-  const key = `rate:${bucket}:${identifier}`;
-  const now = Date.now();
-  const current = await kv.get(key);
+const checkRateLimit = async (
+  bucket: string,
+  identifier: string,
+  limit: number,
+  windowMs: number,
+) => {
+  const key = `rate:${bucket}:${identifier}`
+  const now = Date.now()
+  const current = await kv.get(key)
   if (!current || current.resetAt <= now) {
-    await kv.set(key, { count: 1, resetAt: now + windowMs });
-    return true;
+    await kv.set(key, { count: 1, resetAt: now + windowMs })
+    return true
   }
-  if (current.count >= limit) return false;
-  await kv.set(key, { ...current, count: current.count + 1 });
-  return true;
-};
+  if (current.count >= limit) return false
+  await kv.set(key, { ...current, count: current.count + 1 })
+  return true
+}
 
-type NotificationCategory = "loyaltyActivity" | "businessUpdates" | "businessOperations";
+type NotificationCategory = "loyaltyActivity" | "businessUpdates" | "businessOperations"
 type NotificationPayload = {
-  type: "points_changed" | "reward_claimed" | "reward_verified" | "member_joined" | "business_broadcast" | "nfc_points_claimed";
-  category: NotificationCategory;
-  title: string;
-  body: string;
-  businessId?: number;
-  businessName?: string;
-  claimCode?: string;
-  data?: Record<string, string | number | boolean>;
-};
+  type: "points_changed" | "reward_claimed" | "reward_verified" | "member_joined" | "business_broadcast" | "nfc_points_claimed"
+  category: NotificationCategory
+  title: string
+  body: string
+  businessId?: number
+  businessName?: string
+  claimCode?: string
+  data?: Record<string, string | number | boolean>
+}
 
 const notificationDefaults = (role: string) => ({
   pushEnabled: false,
@@ -49,104 +59,142 @@ const notificationDefaults = (role: string) => ({
   businessUpdates: role === "customer",
   businessOperations: role === "business",
   updatedAt: new Date().toISOString(),
-});
+})
 
 const getNotificationPreferences = async (userId: string, role: string) => ({
   ...notificationDefaults(role),
-  ...(await kv.get(`notification-preferences:${userId}`) ?? {}),
-});
+  ...((await kv.get(`notification-preferences:${userId}`)) ?? {}),
+})
 
 const hashText = async (value: string) => {
-  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value));
-  return Array.from(new Uint8Array(digest)).map((byte) => byte.toString(16).padStart(2, "0")).join("");
-};
+  const digest = await crypto.subtle.digest(
+    "SHA-256",
+    new TextEncoder().encode(value),
+  )
+  return Array.from(new Uint8Array(digest))
+    .map((byte) => byte.toString(16).padStart(2, "0"))
+    .join("")
+}
 
 const resolveCustomerUser = async (phone: string) => {
-  const login = await kv.get(`login:customer:${normalizePhone(phone)}`);
-  return login?.userId ? { userId: String(login.userId) } : null;
-};
+  const login = await kv.get(`login:customer:${normalizePhone(phone)}`)
+  return login?.userId ? { userId: String(login.userId) } : null
+}
 
-const saveInboxNotification = async (userId: string, payload: NotificationPayload) => {
-  const id = crypto.randomUUID();
-  const createdAt = new Date().toISOString();
-  const key = `notification:${userId}:${Date.now()}:${id}`;
-  const notification = { id, userId, ...payload, readAt: null, createdAt, _key: key };
-  await kv.set(key, notification);
-  const retained = await kv.getByPrefix(`notification:${userId}:`);
-  const overflow = retained.sort((a: any, b: any) => String(b.createdAt).localeCompare(String(a.createdAt))).slice(100).filter((item: any) => item._key);
-  if (overflow.length > 0) background(Promise.all(overflow.map((item: any) => kv.del(item._key))));
-  return notification;
-};
+const saveInboxNotification = async (
+  userId: string,
+  payload: NotificationPayload,
+) => {
+  const id = crypto.randomUUID()
+  const createdAt = new Date().toISOString()
+  const key = `notification:${userId}:${Date.now()}:${id}`
+  const notification = {
+    id,
+    userId,
+    ...payload,
+    readAt: null,
+    createdAt,
+    _key: key,
+  }
+  await kv.set(key, notification)
+  const retained = await kv.getByPrefix(`notification:${userId}:`)
+  const overflow = retained
+    .sort((a: any, b: any) =>
+      String(b.createdAt).localeCompare(String(a.createdAt)),
+    )
+    .slice(100)
+    .filter((item: any) => item._key)
+  if (overflow.length > 0)
+    background(Promise.all(overflow.map((item: any) => kv.del(item._key))))
+  return notification
+}
 
 const configureWebPush = () => {
-  const publicKey = Deno.env.get("VAPID_PUBLIC_KEY");
-  const privateKey = Deno.env.get("VAPID_PRIVATE_KEY");
-  const subject = Deno.env.get("VAPID_SUBJECT") || "https://www.perklyn.in";
-  if (!publicKey || !privateKey) return false;
-  webpush.setVapidDetails(subject, publicKey, privateKey);
-  return true;
-};
+  const publicKey = Deno.env.get("VAPID_PUBLIC_KEY")
+  const privateKey = Deno.env.get("VAPID_PRIVATE_KEY")
+  const subject = Deno.env.get("VAPID_SUBJECT") || "https://www.perklyn.in"
+  if (!publicKey || !privateKey) return false
+  webpush.setVapidDetails(subject, publicKey, privateKey)
+  return true
+}
 
 const sendPushesToUser = async (userId: string, notification: any) => {
-  if (!configureWebPush()) return { attempted: 0, delivered: 0, removed: 0 };
-  const subscriptions = await kv.getByPrefix(`push-subscription:${userId}:`);
-  let delivered = 0;
-  let removed = 0;
+  if (!configureWebPush()) return { attempted: 0, delivered: 0, removed: 0 }
+  const subscriptions = await kv.getByPrefix(`push-subscription:${userId}:`)
+  let delivered = 0
+  let removed = 0
   for (let start = 0; start < subscriptions.length; start += 25) {
-    const batch = subscriptions.slice(start, start + 25);
-    const results = await Promise.allSettled(batch.map(async (stored: any) => {
-      try {
-        await webpush.sendNotification(
-          { endpoint: stored.endpoint, keys: stored.keys },
-          JSON.stringify({
-            id: notification.id,
-            type: notification.type,
-            title: notification.title,
-            body: notification.body,
-            tag: `perklyn-${notification.id}`,
-            url: `/?notification=${notification.id}`,
-            businessId: notification.businessId,
-            createdAt: notification.createdAt,
-          }),
-        );
-        delivered += 1;
-      } catch (error: any) {
-        if (error?.statusCode === 404 || error?.statusCode === 410) {
-          await kv.del(`push-subscription:${userId}:${stored.id}`);
-          removed += 1;
-          return;
+    const batch = subscriptions.slice(start, start + 25)
+    const results = await Promise.allSettled(
+      batch.map(async (stored: any) => {
+        try {
+          await webpush.sendNotification(
+            { endpoint: stored.endpoint, keys: stored.keys },
+            JSON.stringify({
+              id: notification.id,
+              type: notification.type,
+              title: notification.title,
+              body: notification.body,
+              tag: `perklyn-${notification.id}`,
+              url: `/?notification=${notification.id}`,
+              businessId: notification.businessId,
+              createdAt: notification.createdAt,
+            }),
+          )
+          delivered += 1
+        } catch (error: any) {
+          if (error?.statusCode === 404 || error?.statusCode === 410) {
+            await kv.del(`push-subscription:${userId}:${stored.id}`)
+            removed += 1
+            return
+          }
+          throw error
         }
-        throw error;
-      }
-    }));
+      }),
+    )
     results.forEach((result) => {
-      if (result.status === "rejected") console.log("Push delivery failed", result.reason?.statusCode ?? "unknown");
-    });
+      if (result.status === "rejected")
+        console.log(
+          "Push delivery failed",
+          result.reason?.statusCode ?? "unknown",
+        )
+    })
   }
-  return { attempted: subscriptions.length, delivered, removed };
-};
+  return { attempted: subscriptions.length, delivered, removed }
+}
 
-const dispatchNotification = async (userId: string, role: string, payload: NotificationPayload) => {
-  const preferences = await getNotificationPreferences(userId, role);
-  if (!preferences[payload.category]) return null;
-  const notification = await saveInboxNotification(userId, payload);
+const dispatchNotification = async (
+  userId: string,
+  role: string,
+  payload: NotificationPayload,
+) => {
+  const preferences = await getNotificationPreferences(userId, role)
+  if (!preferences[payload.category]) return null
+  const notification = await saveInboxNotification(userId, payload)
   const delivery = preferences.pushEnabled
     ? await sendPushesToUser(userId, notification)
-    : { attempted: 0, delivered: 0, removed: 0 };
-  return { notification, delivery };
-};
+    : { attempted: 0, delivered: 0, removed: 0 }
+  return { notification, delivery }
+}
 
 const background = (promise: Promise<unknown>) => {
-  const runtime = (globalThis as any).EdgeRuntime;
-  if (runtime?.waitUntil) runtime.waitUntil(promise);
-  else promise.catch((error) => console.log("Background notification failed", error));
-};
+  const runtime = (globalThis as any).EdgeRuntime
+  if (runtime?.waitUntil) runtime.waitUntil(promise)
+  else
+    promise.catch((error) =>
+      console.log("Background notification failed", error),
+    )
+}
 
-const indexBusinessMember = async (businessId: number, customer: { phone: string; name?: string }, customerUserId?: string) => {
-  const normalizedPhone = normalizePhone(customer.phone);
-  if (!normalizedPhone) return;
-  const key = `business-member:${businessId}:${normalizedPhone}`;
-  const existing = await kv.get(key);
+const indexBusinessMember = async (
+  businessId: number,
+  customer: { phone: string; name?: string },
+  customerUserId?: string,
+) => {
+  const normalizedPhone = normalizePhone(customer.phone)
+  if (!normalizedPhone) return
+  const key = `business-member:${businessId}:${normalizedPhone}`
+  const existing = await kv.get(key)
   await kv.set(key, {
     businessId,
     phone: customer.phone,
@@ -154,42 +202,56 @@ const indexBusinessMember = async (businessId: number, customer: { phone: string
     customerName: customer.name ?? existing?.customerName ?? "Perklyn member",
     customerUserId: customerUserId ?? existing?.customerUserId,
     joinedAt: existing?.joinedAt ?? new Date().toISOString(),
-  });
-};
+  })
+}
 
 const ownedBusiness = async (businessId: number, userId: string) => {
-  const business = await kv.get(`business:${businessId}`);
-  return business?._ownerId === userId ? business : null;
-};
+  const business = await kv.get(`business:${businessId}`)
+  return business?._ownerId === userId ? business : null
+}
 
-const validNfcToken = (token: string) => /^[A-Za-z0-9_-]{43}$/.test(token);
+const validNfcToken = (token: string) => /^[A-Za-z0-9_-]{43}$/.test(token)
 const randomToken = () => {
-  const bytes = crypto.getRandomValues(new Uint8Array(32));
-  return btoa(String.fromCharCode(...bytes)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
-};
+  const bytes = crypto.getRandomValues(new Uint8Array(32))
+  return btoa(String.fromCharCode(...bytes))
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/, "")
+}
 const nfcRpc = async (name: string, parameters: Record<string, unknown>) => {
-  const { data, error } = await adminClient().rpc(name, parameters);
-  if (error) throw error;
-  return data;
-};
+  const { data, error } = await adminClient().rpc(name, parameters)
+  if (error) throw error
+  return data
+}
 const currentNfcIssue = async (card: any) => {
-  const active = await kv.get(`nfc-active:${card.id}`);
-  const issue = active?.currentIssueKey ? await kv.get(active.currentIssueKey) : null;
-  if (issue?.status === "pending" && new Date(issue.expiresAt).getTime() <= Date.now()) {
+  const active = await kv.get(`nfc-active:${card.id}`)
+  const issue = active?.currentIssueKey
+    ? await kv.get(active.currentIssueKey)
+    : null
+  if (
+    issue?.status === "pending" &&
+    new Date(issue.expiresAt).getTime() <= Date.now()
+  ) {
     const result = await nfcRpc("perklyn_cancel_nfc_issue", {
       p_active_key: `nfc-active:${card.id}`,
       p_issue_key: active.currentIssueKey,
       p_owner_id: card.ownerId,
-    });
-    return result?.issue ?? { ...issue, status: "expired" };
+    })
+    return result?.issue ?? { ...issue, status: "expired" }
   }
-  return issue;
-};
+  return issue
+}
 
-const reconcileNfcClaim = async (issue: any, balance: number, nfcPoints: number) => {
-  if (await kv.get(`nfc-reconciled:${issue.id}`)) return;
-  const ownerState = await kv.get(`state:${issue.ownerId}`) ?? {};
-  const customers = Array.isArray(ownerState.customers) ? ownerState.customers : [];
+const reconcileNfcClaim = async (
+  issue: any,
+  balance: number,
+  nfcPoints: number,
+) => {
+  if (await kv.get(`nfc-reconciled:${issue.id}`)) return
+  const ownerState = (await kv.get(`state:${issue.ownerId}`)) ?? {}
+  const customers = Array.isArray(ownerState.customers)
+    ? ownerState.customers
+    : []
   const customer = {
     id: Date.now(),
     name: issue.claimedCustomerName,
@@ -198,10 +260,17 @@ const reconcileNfcClaim = async (issue: any, balance: number, nfcPoints: number)
     nfcPoints,
     reward: "Welcome reward",
     joined: "Just now",
-  };
-  ownerState.customers = customers.some((item: any) => normalizePhone(item.phone) === normalizePhone(customer.phone))
-    ? customers.map((item: any) => normalizePhone(item.phone) === normalizePhone(customer.phone) ? { ...item, points: balance, nfcPoints } : item)
-    : [customer, ...customers];
+  }
+  ownerState.customers = customers.some(
+    (item: any) =>
+      normalizePhone(item.phone) === normalizePhone(customer.phone),
+  )
+    ? customers.map((item: any) =>
+        normalizePhone(item.phone) === normalizePhone(customer.phone)
+          ? { ...item, points: balance, nfcPoints }
+          : item,
+      )
+    : [customer, ...customers]
   const activity = {
     id: `nfc:${issue.id}`,
     businessId: issue.businessId,
@@ -210,183 +279,468 @@ const reconcileNfcClaim = async (issue: any, balance: number, nfcPoints: number)
     type: "nfc_issued",
     source: "nfc",
     points: issue.amount,
-    description: issue.reason ? `NFC points issued: ${issue.reason}` : "Points issued by NFC",
+    description: issue.reason
+      ? `NFC points issued: ${issue.reason}`
+      : "Points issued by NFC",
     occurredAt: issue.claimedAt,
-  };
-  const activities = Array.isArray(ownerState.activities) ? ownerState.activities : [];
-  ownerState.activities = activities.some((item: any) => item.id === activity.id) ? activities : [activity, ...activities];
-  await kv.set(`state:${issue.ownerId}`, ownerState);
-  await kv.set(`audit:${issue.businessId}:nfc:${issue.id}`, activity);
-  await indexBusinessMember(Number(issue.businessId), { phone: issue.claimedCustomerPhone, name: issue.claimedCustomerName }, issue.claimedByUserId);
-  await kv.set(`nfc-reconciled:${issue.id}`, { reconciledAt: new Date().toISOString() });
-};
+  }
+  const activities = Array.isArray(ownerState.activities)
+    ? ownerState.activities
+    : []
+  ownerState.activities = activities.some(
+    (item: any) => item.id === activity.id,
+  )
+    ? activities
+    : [activity, ...activities]
+  await kv.set(`state:${issue.ownerId}`, ownerState)
+  await kv.set(`audit:${issue.businessId}:nfc:${issue.id}`, activity)
+  await indexBusinessMember(
+    Number(issue.businessId),
+    { phone: issue.claimedCustomerPhone, name: issue.claimedCustomerName },
+    issue.claimedByUserId,
+  )
+  await kv.set(`nfc-reconciled:${issue.id}`, {
+    reconciledAt: new Date().toISOString(),
+  })
+}
 
-const validRfidIdentifier = (value: string) => /^[A-Za-z0-9:_-]{4,80}$/.test(value);
-const maskRfidIdentifier = (value: string) => value.length <= 6 ? `••${value.slice(-2)}` : `${value.slice(0, 3)}••••${value.slice(-3)}`;
+const validRfidIdentifier = (value: string) =>
+  /^[A-Za-z0-9:_-]{4,80}$/.test(value)
+const maskRfidIdentifier = (value: string) =>
+  value.length <= 6
+    ? `••${value.slice(-2)}`
+    : `${value.slice(0, 3)}••••${value.slice(-3)}`
 const maskPhone = (value: string) => {
-  const digits = normalizePhone(value);
-  return digits.length < 5 ? "••••" : `${digits.slice(0, 2)}${"•".repeat(Math.max(4, digits.length - 4))}${digits.slice(-2)}`;
-};
-const rfidCardKey = async (businessId: number, identifier: string) => `rfid-card:${businessId}:${await hashText(identifier.trim().toUpperCase())}`;
-const rfidRegistryKey = async (identifier: string) => `rfid-identifier:${await hashText(identifier.trim().toUpperCase())}`;
-const reconcileRfidTransaction = async (card: any, transaction: any, balance: number) => {
-  const ownerState = await kv.get(`state:${card.ownerId}`) ?? {};
+  const digits = normalizePhone(value)
+  return digits.length < 5
+    ? "••••"
+    : `${digits.slice(0, 2)}${"•".repeat(Math.max(4, digits.length - 4))}${digits.slice(-2)}`
+}
+const rfidCardKey = async (businessId: number, identifier: string) =>
+  `rfid-card:${businessId}:${await hashText(identifier.trim().toUpperCase())}`
+const rfidRegistryKey = async (identifier: string) =>
+  `rfid-identifier:${await hashText(identifier.trim().toUpperCase())}`
+const validGstRates = new Set([0, 500, 1200, 1800, 2800])
+const validPaymentModes = new Set(["cash", "upi", "card"])
+const normalizeMoney = (value: unknown) =>
+  Math.max(0, Math.round(Number(value) || 0))
+const currentIndianFiscalYear = (date = new Date()) => {
+  const year = date.getUTCFullYear()
+  const start = date.getUTCMonth() >= 3 ? year : year - 1
+  return `${start}-${String(start + 1).slice(-2)}`
+}
+const calculateBillingQuote = (
+  rawLines: any[],
+  rawCartDiscount: unknown,
+  sellerStateCode: string,
+  placeOfSupplyCode: string,
+) => {
+  if (!Array.isArray(rawLines) || rawLines.length < 1 || rawLines.length > 100)
+    throw new Error("Add between 1 and 100 bill items.")
+  const bases = rawLines.map((raw, index) => {
+    const quantity = Number(raw.quantity)
+    const unitPricePaise = normalizeMoney(raw.unitPricePaise)
+    const gstRateBps = Number(raw.gstRateBps)
+    if (!String(raw.name ?? "").trim() || !String(raw.hsnSac ?? "").trim())
+      throw new Error(`Item ${index + 1} needs a name and HSN/SAC code.`)
+    if (
+      !Number.isFinite(quantity) ||
+      quantity <= 0 ||
+      Math.round(quantity * 1000) !== quantity * 1000
+    )
+      throw new Error(`Item ${index + 1} has an invalid quantity.`)
+    if (!validGstRates.has(gstRateBps))
+      throw new Error(`Item ${index + 1} has an unsupported GST rate.`)
+    const grossBeforeDiscountPaise = normalizeMoney(unitPricePaise * quantity)
+    const lineDiscountPaise = Math.min(
+      normalizeMoney(raw.lineDiscountPaise),
+      grossBeforeDiscountPaise,
+    )
+    return {
+      raw,
+      quantity,
+      unitPricePaise,
+      gstRateBps,
+      grossBeforeDiscountPaise,
+      lineDiscountPaise,
+      netPaise: grossBeforeDiscountPaise - lineDiscountPaise,
+    }
+  })
+  const netTotal = bases.reduce((sum, item) => sum + item.netPaise, 0)
+  const cartDiscountPaise = Math.min(normalizeMoney(rawCartDiscount), netTotal)
+  const allocations = bases.map((item) =>
+    netTotal ? Math.floor((cartDiscountPaise * item.netPaise) / netTotal) : 0,
+  )
+  let remainder =
+    cartDiscountPaise - allocations.reduce((sum, item) => sum + item, 0)
+  bases
+    .map((item, index) => ({
+      index,
+      fraction: netTotal ? (cartDiscountPaise * item.netPaise) % netTotal : 0,
+    }))
+    .sort((a, b) => b.fraction - a.fraction || a.index - b.index)
+    .forEach(({ index }) => {
+      if (remainder > 0) {
+        allocations[index] += 1
+        remainder -= 1
+      }
+    })
+  const interstate = sellerStateCode !== placeOfSupplyCode
+  const lines = bases.map((item, index) => {
+    const discountedPaise = item.netPaise - allocations[index]
+    const includesTax = item.raw.priceIncludesTax === true
+    const taxablePaise = includesTax
+      ? Math.round((discountedPaise * 10000) / (10000 + item.gstRateBps))
+      : discountedPaise
+    const taxPaise = includesTax
+      ? discountedPaise - taxablePaise
+      : Math.round((taxablePaise * item.gstRateBps) / 10000)
+    const cgstPaise = interstate ? 0 : Math.floor(taxPaise / 2)
+    const sgstPaise = interstate ? 0 : taxPaise - cgstPaise
+    const igstPaise = interstate ? taxPaise : 0
+    return {
+      id: String(item.raw.id || crypto.randomUUID()),
+      catalogItemId: item.raw.catalogItemId
+        ? String(item.raw.catalogItemId)
+        : undefined,
+      lineNumber: index + 1,
+      itemType: item.raw.itemType === "service" ? "service" : "product",
+      name: String(item.raw.name).trim().slice(0, 160),
+      hsnSac: String(item.raw.hsnSac).trim().slice(0, 24),
+      unit: String(item.raw.unit || "unit")
+        .trim()
+        .slice(0, 24),
+      quantity: item.quantity,
+      unitPricePaise: item.unitPricePaise,
+      priceIncludesTax: includesTax,
+      gstRateBps: item.gstRateBps,
+      grossBeforeDiscountPaise: item.grossBeforeDiscountPaise,
+      lineDiscountPaise: item.lineDiscountPaise,
+      allocatedCartDiscountPaise: allocations[index],
+      taxablePaise,
+      cgstPaise,
+      sgstPaise,
+      igstPaise,
+      totalPaise: taxablePaise + cgstPaise + sgstPaise + igstPaise,
+    }
+  })
+  const sum = (field: string) =>
+    lines.reduce((total, line: any) => total + Number(line[field]), 0)
+  return {
+    lines,
+    subtotalPaise: sum("grossBeforeDiscountPaise"),
+    lineDiscountPaise: sum("lineDiscountPaise"),
+    cartDiscountPaise,
+    taxablePaise: sum("taxablePaise"),
+    cgstPaise: sum("cgstPaise"),
+    sgstPaise: sum("sgstPaise"),
+    igstPaise: sum("igstPaise"),
+    totalPaise: sum("totalPaise"),
+  }
+}
+const reconcileRfidTransaction = async (
+  card: any,
+  transaction: any,
+  balance: number,
+) => {
+  const ownerState = (await kv.get(`state:${card.ownerId}`)) ?? {}
   ownerState.customers = (ownerState.customers ?? []).map((customer: any) =>
-    String(customer.id) === String(card.customerId) ? { ...customer, points: balance } : customer
-  );
-  const activities = Array.isArray(ownerState.activities) ? ownerState.activities : [];
-  if (!activities.some((activity: any) => activity.id === transaction.id)) ownerState.activities = [transaction, ...activities];
-  await kv.set(`state:${card.ownerId}`, ownerState);
-};
+    String(customer.id) === String(card.customerId)
+      ? { ...customer, points: balance }
+      : customer,
+  )
+  const activities = Array.isArray(ownerState.activities)
+    ? ownerState.activities
+    : []
+  if (!activities.some((activity: any) => activity.id === transaction.id))
+    ownerState.activities = [transaction, ...activities]
+  await kv.set(`state:${card.ownerId}`, ownerState)
+}
 
 const getBusinessAudience = async (businessId: number) => {
-  const indexed = await kv.getByPrefix(`business-member:${businessId}:`);
-  const members = new Map<string, any>();
-  indexed.forEach((member: any) => members.set(member.normalizedPhone, member));
-  const legacy = await kv.getByPrefix("pending:");
-  await Promise.all(legacy.filter((membership: any) => Number(membership.business?.id) === businessId).map(async (membership: any) => {
-    const normalizedPhone = normalizePhone(membership.phone);
-    if (members.has(normalizedPhone) && members.get(normalizedPhone)?.customerUserId) return;
-    const login = await resolveCustomerUser(membership.phone);
-    const member = {
-      businessId,
-      phone: membership.phone,
-      normalizedPhone,
-      customerName: membership.customerName,
-      customerUserId: login?.userId,
-      joinedAt: membership.updatedAt ?? new Date().toISOString(),
-    };
-    members.set(normalizedPhone, member);
-    await indexBusinessMember(businessId, { phone: membership.phone, name: membership.customerName }, login?.userId);
-  }));
-  const audience = [];
+  const indexed = await kv.getByPrefix(`business-member:${businessId}:`)
+  const members = new Map<string, any>()
+  indexed.forEach((member: any) => members.set(member.normalizedPhone, member))
+  const legacy = await kv.getByPrefix("pending:")
+  await Promise.all(
+    legacy
+      .filter(
+        (membership: any) => Number(membership.business?.id) === businessId,
+      )
+      .map(async (membership: any) => {
+        const normalizedPhone = normalizePhone(membership.phone)
+        if (
+          members.has(normalizedPhone) &&
+          members.get(normalizedPhone)?.customerUserId
+        )
+          return
+        const login = await resolveCustomerUser(membership.phone)
+        const member = {
+          businessId,
+          phone: membership.phone,
+          normalizedPhone,
+          customerName: membership.customerName,
+          customerUserId: login?.userId,
+          joinedAt: membership.updatedAt ?? new Date().toISOString(),
+        }
+        members.set(normalizedPhone, member)
+        await indexBusinessMember(
+          businessId,
+          { phone: membership.phone, name: membership.customerName },
+          login?.userId,
+        )
+      }),
+  )
+  const audience = []
   for (const member of members.values()) {
-    const userId = member.customerUserId ?? (await resolveCustomerUser(member.phone))?.userId;
-    if (!userId) continue;
-    const preferences = await getNotificationPreferences(userId, "customer");
-    if (preferences.businessUpdates) audience.push({ ...member, customerUserId: userId });
+    const userId =
+      member.customerUserId ?? (await resolveCustomerUser(member.phone))?.userId
+    if (!userId) continue
+    const preferences = await getNotificationPreferences(userId, "customer")
+    if (preferences.businessUpdates)
+      audience.push({ ...member, customerUserId: userId })
   }
-  return audience;
-};
+  return audience
+}
 
-app.use("*", logger(console.log));
-app.use("/*", cors({
-  origin: "*",
-  allowHeaders: ["Content-Type", "Authorization"],
-  allowMethods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-  exposeHeaders: ["Content-Length"],
-  maxAge: 600,
-}));
+app.use("*", logger(console.log))
+app.use(
+  "/*",
+  cors({
+    origin: "*",
+    allowHeaders: ["Content-Type", "Authorization"],
+    allowMethods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    exposeHeaders: ["Content-Length"],
+    maxAge: 600,
+  }),
+)
 app.use("*", async (c, next) => {
-  await next();
-  c.header("X-Content-Type-Options", "nosniff");
-  c.header("X-Frame-Options", "DENY");
-  c.header("Referrer-Policy", "no-referrer");
-  c.header("Cache-Control", "no-store");
-});
+  await next()
+  c.header("X-Content-Type-Options", "nosniff")
+  c.header("X-Frame-Options", "DENY")
+  c.header("Referrer-Policy", "no-referrer")
+  c.header("Cache-Control", "no-store")
+})
 app.onError((error: any, c) => {
-  c.header("Access-Control-Allow-Origin", "*");
-  c.header("Content-Type", "application/json");
+  c.header("Access-Control-Allow-Origin", "*")
+  c.header("Content-Type", "application/json")
   const databaseSetupMissing =
     error?.code === "PGRST202" ||
     String(error?.message ?? "").includes("perklyn_create_nfc_issue") ||
     String(error?.message ?? "").includes("perklyn_claim_nfc_issue") ||
     String(error?.message ?? "").includes("perklyn_cancel_nfc_issue") ||
     String(error?.message ?? "").includes("perklyn_activate_rfid_card") ||
-    String(error?.message ?? "").includes("perklyn_rfid_points_transaction");
+    String(error?.message ?? "").includes("perklyn_rfid_points_transaction")
   if (databaseSetupMissing) {
-    console.log("NFC database functions are not installed", error?.code ?? "missing_rpc");
-    return c.json({ error: "NFC database setup is incomplete. Apply the latest Supabase migration, then redeploy the Edge Function." }, 503);
+    console.log(
+      "NFC database functions are not installed",
+      error?.code ?? "missing_rpc",
+    )
+    return c.json(
+      {
+        error:
+          "NFC database setup is incomplete. Apply the latest Supabase migration, then redeploy the Edge Function.",
+      },
+      503,
+    )
   }
-  console.log("Unhandled server request failed", error?.code ?? error?.name ?? "unknown");
-  return c.json({ error: "The Perklyn server could not complete this request. Try again shortly." }, 500);
-});
+  console.log(
+    "Unhandled server request failed",
+    error?.code ?? error?.name ?? "unknown",
+  )
+  return c.json(
+    {
+      error:
+        "The Perklyn server could not complete this request. Try again shortly.",
+    },
+    500,
+  )
+})
 
-app.get(`${prefix}/health`, (c) => c.json({ status: "ok" }));
+app.get(`${prefix}/health`, (c) => c.json({ status: "ok" }))
 
 app.post(`${prefix}/signup`, async (c) => {
   try {
-    const body = await c.req.json();
-    const { role, name, businessName = "", phone, email, password, authorizationCode = "" } = body;
-    if (!["customer", "business"].includes(role) || !name || !phone || !email || !password) return c.json({ error: "Missing required account information." }, 400);
-    const normalizedEmail = String(email).trim().toLowerCase();
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)) return c.json({ error: "Enter a valid recovery email address." }, 400);
-    if (!await checkRateLimit("signup", `${role}:${normalizePhone(phone)}`, 5, 60 * 60 * 1000)) return c.json({ error: "Too many signup attempts for this phone number. Try again later." }, 429);
-    if (await kv.get(`login:${role}:${normalizePhone(phone)}`)) return c.json({ error: "An account already exists for this phone number." }, 409);
-    if (password.length < 10) return c.json({ error: "Password must contain at least 10 characters." }, 400);
+    const body = await c.req.json()
+    const {
+      role,
+      name,
+      businessName = "",
+      phone,
+      email,
+      password,
+      authorizationCode = "",
+    } = body
+    if (
+      !["customer", "business"].includes(role) ||
+      !name ||
+      !phone ||
+      !email ||
+      !password
+    )
+      return c.json({ error: "Missing required account information." }, 400)
+    const normalizedEmail = String(email).trim().toLowerCase()
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail))
+      return c.json({ error: "Enter a valid recovery email address." }, 400)
+    if (
+      !(await checkRateLimit(
+        "signup",
+        `${role}:${normalizePhone(phone)}`,
+        5,
+        60 * 60 * 1000,
+      ))
+    )
+      return c.json(
+        {
+          error:
+            "Too many signup attempts for this phone number. Try again later.",
+        },
+        429,
+      )
+    if (await kv.get(`login:${role}:${normalizePhone(phone)}`))
+      return c.json(
+        { error: "An account already exists for this phone number." },
+        409,
+      )
+    if (password.length < 10)
+      return c.json(
+        { error: "Password must contain at least 10 characters." },
+        400,
+      )
     if (role === "business") {
-      const configuredCode = Deno.env.get("BUSINESS_AUTH_CODE");
-      if (!configuredCode || authorizationCode !== configuredCode) return c.json({ error: "The business authorization code is invalid." }, 403);
+      const configuredCode = Deno.env.get("BUSINESS_AUTH_CODE")
+      if (!configuredCode || authorizationCode !== configuredCode)
+        return c.json(
+          { error: "The business authorization code is invalid." },
+          403,
+        )
     }
     const { data, error } = await adminClient().auth.admin.createUser({
       email: normalizedEmail,
       password,
       email_confirm: true,
-      user_metadata: { role, name, phone, email: normalizedEmail, businessName },
-    });
+      user_metadata: {
+        role,
+        name,
+        phone,
+        email: normalizedEmail,
+        businessName,
+      },
+    })
     if (error) {
-      const duplicate = error.message.toLowerCase().includes("already");
-      return c.json({ error: duplicate ? "An account already exists for this email address." : error.message }, duplicate ? 409 : 400);
+      const duplicate = error.message.toLowerCase().includes("already")
+      return c.json(
+        {
+          error: duplicate
+            ? "An account already exists for this email address."
+            : error.message,
+        },
+        duplicate ? 409 : 400,
+      )
     }
-    const profile = { id: data.user.id, role, name, phone, email: normalizedEmail, businessName, createdAt: new Date().toISOString() };
+    const profile = {
+      id: data.user.id,
+      role,
+      name,
+      phone,
+      email: normalizedEmail,
+      businessName,
+      createdAt: new Date().toISOString(),
+    }
     await kv.mset(
       [`profile:${data.user.id}`, `login:${role}:${normalizePhone(phone)}`],
       [profile, { email: normalizedEmail, userId: data.user.id }],
-    );
-    return c.json({ profile });
+    )
+    return c.json({ profile })
   } catch (error) {
-    console.log("Signup error", error);
-    return c.json({ error: "Unable to create the account." }, 500);
+    console.log("Signup error", error)
+    return c.json({ error: "Unable to create the account." }, 500)
   }
-});
+})
 
 app.post(`${prefix}/login`, async (c) => {
-  const { role = "", phone: suppliedPhone = "", password = "" } = await c.req.json();
-  const phone = normalizePhone(suppliedPhone);
-  if (!["customer", "business"].includes(role) || !phone) return c.json({ error: "Role and phone number are required." }, 400);
-  if (!password) return c.json({ error: "Password is required." }, 400);
-  if (!await checkRateLimit("login", `${role}:${phone}`, 20, 15 * 60 * 1000)) return c.json({ error: "Too many login attempts. Try again later." }, 429);
-  const login = await kv.get(`login:${role}:${phone}`);
+  const {
+    role = "",
+    phone: suppliedPhone = "",
+    password = "",
+  } = await c.req.json()
+  const phone = normalizePhone(suppliedPhone)
+  if (!["customer", "business"].includes(role) || !phone)
+    return c.json({ error: "Role and phone number are required." }, 400)
+  if (!password) return c.json({ error: "Password is required." }, 400)
+  if (!(await checkRateLimit("login", `${role}:${phone}`, 20, 15 * 60 * 1000)))
+    return c.json({ error: "Too many login attempts. Try again later." }, 429)
+  const login = await kv.get(`login:${role}:${phone}`)
   let { data, error } = await adminClient().auth.signInWithPassword({
     email: login?.email ?? legacyAccountEmail(phone, role),
     password,
-  });
+  })
   if (error && !login) {
     const legacyResult = await adminClient().auth.signInWithPassword({
       email: `phone_${phone}@loyaltyhub.local`,
       password,
-    });
-    data = legacyResult.data;
-    error = legacyResult.error;
+    })
+    data = legacyResult.data
+    error = legacyResult.error
   }
-  if (error || !data.session) return c.json({ error: "The phone number or password is incorrect." }, 401);
+  if (error || !data.session)
+    return c.json({ error: "The phone number or password is incorrect." }, 401)
   if (!login && data.user) {
-    await kv.set(`login:${role}:${phone}`, { email: data.user.email, userId: data.user.id });
+    await kv.set(`login:${role}:${phone}`, {
+      email: data.user.email,
+      userId: data.user.id,
+    })
     if (role === "customer") {
-      const memberships = await kv.getByPrefix(`pending:${phone}:`);
-      await Promise.all(memberships.map((membership: any) => indexBusinessMember(Number(membership.business?.id), { phone: suppliedPhone, name: membership.customerName }, data.user.id)));
+      const memberships = await kv.getByPrefix(`pending:${phone}:`)
+      await Promise.all(
+        memberships.map((membership: any) =>
+          indexBusinessMember(
+            Number(membership.business?.id),
+            { phone: suppliedPhone, name: membership.customerName },
+            data.user.id,
+          ),
+        ),
+      )
     }
   }
-  return c.json({ accessToken: data.session.access_token, refreshToken: data.session.refresh_token });
-});
+  return c.json({
+    accessToken: data.session.access_token,
+    refreshToken: data.session.refresh_token,
+  })
+})
 
 app.get(`${prefix}/push/config`, async (c) => {
-  const user = await authenticatedUser(c);
-  if (!user) return c.json({ error: "Unauthorized" }, 401);
-  const publicKey = Deno.env.get("VAPID_PUBLIC_KEY");
-  return c.json({ publicKey: publicKey ?? "", supported: Boolean(publicKey && Deno.env.get("VAPID_PRIVATE_KEY")) });
-});
+  const user = await authenticatedUser(c)
+  if (!user) return c.json({ error: "Unauthorized" }, 401)
+  const publicKey = Deno.env.get("VAPID_PUBLIC_KEY")
+  return c.json({
+    publicKey: publicKey ?? "",
+    supported: Boolean(publicKey && Deno.env.get("VAPID_PRIVATE_KEY")),
+  })
+})
 
 app.post(`${prefix}/push/subscriptions`, async (c) => {
-  const user = await authenticatedUser(c);
-  if (!user) return c.json({ error: "Unauthorized" }, 401);
-  if (!await checkRateLimit("push-subscription", user.id, 20, 60 * 60 * 1000)) return c.json({ error: "Too many subscription changes. Try again later." }, 429);
-  const { subscription, userAgent = "" } = await c.req.json();
-  const endpoint = String(subscription?.endpoint ?? "");
-  const p256dh = String(subscription?.keys?.p256dh ?? "");
-  const auth = String(subscription?.keys?.auth ?? "");
-  if (!endpoint.startsWith("https://") || endpoint.length > 4096 || !p256dh || p256dh.length > 512 || !auth || auth.length > 256) return c.json({ error: "Invalid push subscription." }, 400);
-  const id = await hashText(endpoint);
+  const user = await authenticatedUser(c)
+  if (!user) return c.json({ error: "Unauthorized" }, 401)
+  if (!(await checkRateLimit("push-subscription", user.id, 20, 60 * 60 * 1000)))
+    return c.json(
+      { error: "Too many subscription changes. Try again later." },
+      429,
+    )
+  const { subscription, userAgent = "" } = await c.req.json()
+  const endpoint = String(subscription?.endpoint ?? "")
+  const p256dh = String(subscription?.keys?.p256dh ?? "")
+  const auth = String(subscription?.keys?.auth ?? "")
+  if (
+    !endpoint.startsWith("https://") ||
+    endpoint.length > 4096 ||
+    !p256dh ||
+    p256dh.length > 512 ||
+    !auth ||
+    auth.length > 256
+  )
+    return c.json({ error: "Invalid push subscription." }, 400)
+  const id = await hashText(endpoint)
   await kv.set(`push-subscription:${user.id}:${id}`, {
     id,
     userId: user.id,
@@ -395,122 +749,200 @@ app.post(`${prefix}/push/subscriptions`, async (c) => {
     userAgent: String(userAgent).slice(0, 300),
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
-  });
-  const profile = await kv.get(`profile:${user.id}`) ?? user.user_metadata ?? {};
-  const preferences = await getNotificationPreferences(user.id, profile.role);
-  await kv.set(`notification-preferences:${user.id}`, { ...preferences, pushEnabled: true, updatedAt: new Date().toISOString() });
-  return c.json({ subscribed: true });
-});
+  })
+  const profile =
+    (await kv.get(`profile:${user.id}`)) ?? user.user_metadata ?? {}
+  const preferences = await getNotificationPreferences(user.id, profile.role)
+  await kv.set(`notification-preferences:${user.id}`, {
+    ...preferences,
+    pushEnabled: true,
+    updatedAt: new Date().toISOString(),
+  })
+  return c.json({ subscribed: true })
+})
 
 app.delete(`${prefix}/push/subscriptions`, async (c) => {
-  const user = await authenticatedUser(c);
-  if (!user) return c.json({ error: "Unauthorized" }, 401);
-  const { endpoint = "" } = await c.req.json();
-  if (!endpoint) return c.json({ error: "Subscription endpoint is required." }, 400);
-  await kv.del(`push-subscription:${user.id}:${await hashText(String(endpoint))}`);
-  const remaining = await kv.getByPrefix(`push-subscription:${user.id}:`);
+  const user = await authenticatedUser(c)
+  if (!user) return c.json({ error: "Unauthorized" }, 401)
+  const { endpoint = "" } = await c.req.json()
+  if (!endpoint)
+    return c.json({ error: "Subscription endpoint is required." }, 400)
+  await kv.del(
+    `push-subscription:${user.id}:${await hashText(String(endpoint))}`,
+  )
+  const remaining = await kv.getByPrefix(`push-subscription:${user.id}:`)
   if (remaining.length === 0) {
-    const profile = await kv.get(`profile:${user.id}`) ?? user.user_metadata ?? {};
-    const preferences = await getNotificationPreferences(user.id, profile.role);
-    await kv.set(`notification-preferences:${user.id}`, { ...preferences, pushEnabled: false, updatedAt: new Date().toISOString() });
+    const profile =
+      (await kv.get(`profile:${user.id}`)) ?? user.user_metadata ?? {}
+    const preferences = await getNotificationPreferences(user.id, profile.role)
+    await kv.set(`notification-preferences:${user.id}`, {
+      ...preferences,
+      pushEnabled: false,
+      updatedAt: new Date().toISOString(),
+    })
   }
-  return c.json({ subscribed: remaining.length > 0 });
-});
+  return c.json({ subscribed: remaining.length > 0 })
+})
 
 app.get(`${prefix}/notification-preferences`, async (c) => {
-  const user = await authenticatedUser(c);
-  if (!user) return c.json({ error: "Unauthorized" }, 401);
-  const profile = await kv.get(`profile:${user.id}`) ?? user.user_metadata ?? {};
-  return c.json({ preferences: await getNotificationPreferences(user.id, profile.role) });
-});
+  const user = await authenticatedUser(c)
+  if (!user) return c.json({ error: "Unauthorized" }, 401)
+  const profile =
+    (await kv.get(`profile:${user.id}`)) ?? user.user_metadata ?? {}
+  return c.json({
+    preferences: await getNotificationPreferences(user.id, profile.role),
+  })
+})
 
 app.put(`${prefix}/notification-preferences`, async (c) => {
-  const user = await authenticatedUser(c);
-  if (!user) return c.json({ error: "Unauthorized" }, 401);
-  const profile = await kv.get(`profile:${user.id}`) ?? user.user_metadata ?? {};
-  const current = await getNotificationPreferences(user.id, profile.role);
-  const body = await c.req.json();
-  const next: any = { ...current };
-  for (const field of ["pushEnabled", "loyaltyActivity", "businessUpdates", "businessOperations"]) {
-    if (typeof body[field] === "boolean") next[field] = body[field];
+  const user = await authenticatedUser(c)
+  if (!user) return c.json({ error: "Unauthorized" }, 401)
+  const profile =
+    (await kv.get(`profile:${user.id}`)) ?? user.user_metadata ?? {}
+  const current = await getNotificationPreferences(user.id, profile.role)
+  const body = await c.req.json()
+  const next: any = { ...current }
+  for (const field of [
+    "pushEnabled",
+    "loyaltyActivity",
+    "businessUpdates",
+    "businessOperations",
+  ]) {
+    if (typeof body[field] === "boolean") next[field] = body[field]
   }
-  next.updatedAt = new Date().toISOString();
-  await kv.set(`notification-preferences:${user.id}`, next);
-  return c.json({ preferences: next });
-});
+  next.updatedAt = new Date().toISOString()
+  await kv.set(`notification-preferences:${user.id}`, next)
+  return c.json({ preferences: next })
+})
 
 app.get(`${prefix}/notifications`, async (c) => {
-  const user = await authenticatedUser(c);
-  if (!user) return c.json({ error: "Unauthorized" }, 401);
-  const limit = Math.min(50, Math.max(1, Number(c.req.query("limit") ?? 30)));
-  const all = await kv.getByPrefix(`notification:${user.id}:`);
-  const sorted = all.sort((a: any, b: any) => String(b.createdAt).localeCompare(String(a.createdAt)));
-  const notifications = sorted.slice(0, limit).map(({ _key, userId, ...notification }: any) => notification);
-  return c.json({ notifications, unreadCount: sorted.filter((item: any) => !item.readAt).length });
-});
+  const user = await authenticatedUser(c)
+  if (!user) return c.json({ error: "Unauthorized" }, 401)
+  const limit = Math.min(50, Math.max(1, Number(c.req.query("limit") ?? 30)))
+  const all = await kv.getByPrefix(`notification:${user.id}:`)
+  const sorted = all.sort((a: any, b: any) =>
+    String(b.createdAt).localeCompare(String(a.createdAt)),
+  )
+  const notifications = sorted
+    .slice(0, limit)
+    .map(({ _key, userId, ...notification }: any) => notification)
+  return c.json({
+    notifications,
+    unreadCount: sorted.filter((item: any) => !item.readAt).length,
+  })
+})
 
 app.post(`${prefix}/notifications/:id/read`, async (c) => {
-  const user = await authenticatedUser(c);
-  if (!user) return c.json({ error: "Unauthorized" }, 401);
-  const id = c.req.param("id");
-  const all = await kv.getByPrefix(`notification:${user.id}:`);
-  const notification = all.find((item: any) => item.id === id);
-  if (!notification?._key) return c.json({ error: "Notification not found." }, 404);
-  notification.readAt = notification.readAt ?? new Date().toISOString();
-  await kv.set(notification._key, notification);
-  const { _key, userId, ...safeNotification } = notification;
-  return c.json({ notification: safeNotification });
-});
+  const user = await authenticatedUser(c)
+  if (!user) return c.json({ error: "Unauthorized" }, 401)
+  const id = c.req.param("id")
+  const all = await kv.getByPrefix(`notification:${user.id}:`)
+  const notification = all.find((item: any) => item.id === id)
+  if (!notification?._key)
+    return c.json({ error: "Notification not found." }, 404)
+  notification.readAt = notification.readAt ?? new Date().toISOString()
+  await kv.set(notification._key, notification)
+  const { _key, userId, ...safeNotification } = notification
+  return c.json({ notification: safeNotification })
+})
 
 app.post(`${prefix}/notifications/read-all`, async (c) => {
-  const user = await authenticatedUser(c);
-  if (!user) return c.json({ error: "Unauthorized" }, 401);
-  const all = await kv.getByPrefix(`notification:${user.id}:`);
-  const unread = all.filter((item: any) => !item.readAt && item._key);
-  if (unread.length > 0) await kv.mset(unread.map((item: any) => item._key), unread.map((item: any) => ({ ...item, readAt: new Date().toISOString() })));
-  return c.json({ updated: unread.length });
-});
+  const user = await authenticatedUser(c)
+  if (!user) return c.json({ error: "Unauthorized" }, 401)
+  const all = await kv.getByPrefix(`notification:${user.id}:`)
+  const unread = all.filter((item: any) => !item.readAt && item._key)
+  if (unread.length > 0)
+    await kv.mset(
+      unread.map((item: any) => item._key),
+      unread.map((item: any) => ({
+        ...item,
+        readAt: new Date().toISOString(),
+      })),
+    )
+  return c.json({ updated: unread.length })
+})
 
 app.get(`${prefix}/business/:id/notification-audience`, async (c) => {
-  const user = await authenticatedUser(c);
-  if (!user) return c.json({ error: "Unauthorized" }, 401);
-  const businessId = Number(c.req.param("id"));
-  if (!await ownedBusiness(businessId, user.id)) return c.json({ error: "You do not own this business." }, 403);
-  const audience = await getBusinessAudience(businessId);
-  return c.json({ eligibleRecipients: audience.length });
-});
+  const user = await authenticatedUser(c)
+  if (!user) return c.json({ error: "Unauthorized" }, 401)
+  const businessId = Number(c.req.param("id"))
+  if (!(await ownedBusiness(businessId, user.id)))
+    return c.json({ error: "You do not own this business." }, 403)
+  const audience = await getBusinessAudience(businessId)
+  return c.json({ eligibleRecipients: audience.length })
+})
 
 app.get(`${prefix}/business/:id/campaigns`, async (c) => {
-  const user = await authenticatedUser(c);
-  if (!user) return c.json({ error: "Unauthorized" }, 401);
-  const businessId = Number(c.req.param("id"));
-  if (!await ownedBusiness(businessId, user.id)) return c.json({ error: "You do not own this business." }, 403);
-  const campaigns = await kv.getByPrefix(`notification-campaign:${businessId}:`);
-  return c.json({ campaigns: campaigns.sort((a: any, b: any) => String(b.createdAt).localeCompare(String(a.createdAt))).slice(0, 10) });
-});
+  const user = await authenticatedUser(c)
+  if (!user) return c.json({ error: "Unauthorized" }, 401)
+  const businessId = Number(c.req.param("id"))
+  if (!(await ownedBusiness(businessId, user.id)))
+    return c.json({ error: "You do not own this business." }, 403)
+  const campaigns = await kv.getByPrefix(`notification-campaign:${businessId}:`)
+  return c.json({
+    campaigns: campaigns
+      .sort((a: any, b: any) =>
+        String(b.createdAt).localeCompare(String(a.createdAt)),
+      )
+      .slice(0, 10),
+  })
+})
 
 app.post(`${prefix}/business/:id/broadcast`, async (c) => {
-  const user = await authenticatedUser(c);
-  if (!user) return c.json({ error: "Unauthorized" }, 401);
-  const businessId = Number(c.req.param("id"));
-  const business = await ownedBusiness(businessId, user.id);
-  if (!business) return c.json({ error: "You do not own this business." }, 403);
-  if (!await checkRateLimit("broadcast-submit", user.id, 10, 60 * 60 * 1000)) return c.json({ error: "Too many notification requests. Try again later." }, 429);
-  const body = await c.req.json();
-  const title = String(body.title ?? "").trim();
-  const message = String(body.body ?? "").trim();
-  if (!title || !message) return c.json({ error: "A title and message are required." }, 400);
-  if (title.length > 60 || message.length > 180) return c.json({ error: "Keep the title under 60 characters and the message under 180 characters." }, 400);
-  const campaigns = await kv.getByPrefix(`notification-campaign:${businessId}:`);
-  const oneDayAgo = Date.now() - 24 * 60 * 60 * 1000;
-  const recent = campaigns.filter((campaign: any) => new Date(campaign.createdAt).getTime() >= oneDayAgo);
-  if (recent.length >= 3) return c.json({ error: "This business has reached its limit of 3 notifications in 24 hours." }, 429);
-  if (campaigns.some((campaign: any) => campaign.title === title && campaign.body === message && Date.now() - new Date(campaign.createdAt).getTime() < 60_000)) return c.json({ error: "This notification was already submitted." }, 409);
-  const audience = await getBusinessAudience(businessId);
-  if (audience.length === 0) return c.json({ error: "There are no opted-in members to notify yet." }, 400);
-  const id = crypto.randomUUID();
-  const createdAt = new Date().toISOString();
-  const campaignKey = `notification-campaign:${businessId}:${Date.now()}:${id}`;
+  const user = await authenticatedUser(c)
+  if (!user) return c.json({ error: "Unauthorized" }, 401)
+  const businessId = Number(c.req.param("id"))
+  const business = await ownedBusiness(businessId, user.id)
+  if (!business) return c.json({ error: "You do not own this business." }, 403)
+  if (!(await checkRateLimit("broadcast-submit", user.id, 10, 60 * 60 * 1000)))
+    return c.json(
+      { error: "Too many notification requests. Try again later." },
+      429,
+    )
+  const body = await c.req.json()
+  const title = String(body.title ?? "").trim()
+  const message = String(body.body ?? "").trim()
+  if (!title || !message)
+    return c.json({ error: "A title and message are required." }, 400)
+  if (title.length > 60 || message.length > 180)
+    return c.json(
+      {
+        error:
+          "Keep the title under 60 characters and the message under 180 characters.",
+      },
+      400,
+    )
+  const campaigns = await kv.getByPrefix(`notification-campaign:${businessId}:`)
+  const oneDayAgo = Date.now() - 24 * 60 * 60 * 1000
+  const recent = campaigns.filter(
+    (campaign: any) => new Date(campaign.createdAt).getTime() >= oneDayAgo,
+  )
+  if (recent.length >= 3)
+    return c.json(
+      {
+        error:
+          "This business has reached its limit of 3 notifications in 24 hours.",
+      },
+      429,
+    )
+  if (
+    campaigns.some(
+      (campaign: any) =>
+        campaign.title === title &&
+        campaign.body === message &&
+        Date.now() - new Date(campaign.createdAt).getTime() < 60_000,
+    )
+  )
+    return c.json({ error: "This notification was already submitted." }, 409)
+  const audience = await getBusinessAudience(businessId)
+  if (audience.length === 0)
+    return c.json(
+      { error: "There are no opted-in members to notify yet." },
+      400,
+    )
+  const id = crypto.randomUUID()
+  const createdAt = new Date().toISOString()
+  const campaignKey = `notification-campaign:${businessId}:${Date.now()}:${id}`
   const campaign = {
     id,
     businessId,
@@ -524,65 +956,94 @@ app.post(`${prefix}/business/:id/broadcast`, async (c) => {
     pushesDelivered: 0,
     invalidSubscriptionsRemoved: 0,
     createdAt,
-  };
-  await kv.set(campaignKey, campaign);
-  background((async () => {
-    const totals = { inboxCreated: 0, pushesAttempted: 0, pushesDelivered: 0, invalidSubscriptionsRemoved: 0 };
-    await kv.set(campaignKey, { ...campaign, status: "sending" });
-    for (const member of audience) {
-      const result = await dispatchNotification(member.customerUserId, "customer", {
-        type: "business_broadcast",
-        category: "businessUpdates",
-        title,
-        body: message,
-        businessId,
-        businessName: business.name,
-      });
-      if (!result) continue;
-      totals.inboxCreated += 1;
-      totals.pushesAttempted += result.delivery.attempted;
-      totals.pushesDelivered += result.delivery.delivered;
-      totals.invalidSubscriptionsRemoved += result.delivery.removed;
-    }
-    await kv.set(campaignKey, {
-      ...campaign,
-      ...totals,
-      status: totals.inboxCreated === audience.length ? "complete" : "partial",
-      completedAt: new Date().toISOString(),
-    });
-  })());
-  return c.json({ campaignId: id, eligibleRecipients: audience.length, status: "queued" }, 202);
-});
+  }
+  await kv.set(campaignKey, campaign)
+  background(
+    (async () => {
+      const totals = {
+        inboxCreated: 0,
+        pushesAttempted: 0,
+        pushesDelivered: 0,
+        invalidSubscriptionsRemoved: 0,
+      }
+      await kv.set(campaignKey, { ...campaign, status: "sending" })
+      for (const member of audience) {
+        const result = await dispatchNotification(
+          member.customerUserId,
+          "customer",
+          {
+            type: "business_broadcast",
+            category: "businessUpdates",
+            title,
+            body: message,
+            businessId,
+            businessName: business.name,
+          },
+        )
+        if (!result) continue
+        totals.inboxCreated += 1
+        totals.pushesAttempted += result.delivery.attempted
+        totals.pushesDelivered += result.delivery.delivered
+        totals.invalidSubscriptionsRemoved += result.delivery.removed
+      }
+      await kv.set(campaignKey, {
+        ...campaign,
+        ...totals,
+        status:
+          totals.inboxCreated === audience.length ? "complete" : "partial",
+        completedAt: new Date().toISOString(),
+      })
+    })(),
+  )
+  return c.json(
+    { campaignId: id, eligibleRecipients: audience.length, status: "queued" },
+    202,
+  )
+})
 
 app.get(`${prefix}/me`, async (c) => {
-  const user = await authenticatedUser(c);
-  if (!user) return c.json({ error: "Unauthorized" }, 401);
-  const [profile, state] = await Promise.all([kv.get(`profile:${user.id}`), kv.get(`state:${user.id}`)]);
-  return c.json({ profile: profile ?? user.user_metadata, state: state ?? null });
-});
+  const user = await authenticatedUser(c)
+  if (!user) return c.json({ error: "Unauthorized" }, 401)
+  const [profile, state] = await Promise.all([
+    kv.get(`profile:${user.id}`),
+    kv.get(`state:${user.id}`),
+  ])
+  return c.json({
+    profile: profile ?? user.user_metadata,
+    state: state ?? null,
+  })
+})
 
 app.put(`${prefix}/state`, async (c) => {
-  const user = await authenticatedUser(c);
-  if (!user) return c.json({ error: "Unauthorized" }, 401);
-  const state = await c.req.json();
-  if (JSON.stringify(state).length > 1_000_000) return c.json({ error: "Account state is too large." }, 413);
-  await kv.set(`state:${user.id}`, state);
-  const profile = await kv.get(`profile:${user.id}`);
+  const user = await authenticatedUser(c)
+  if (!user) return c.json({ error: "Unauthorized" }, 401)
+  const state = await c.req.json()
+  if (JSON.stringify(state).length > 1_000_000)
+    return c.json({ error: "Account state is too large." }, 413)
+  await kv.set(`state:${user.id}`, state)
+  const profile = await kv.get(`profile:${user.id}`)
   if (profile?.role === "business" && Array.isArray(state.businesses)) {
-    await Promise.all(state.businesses.map((business: any) => kv.set(`business:${business.id}`, { ...business, _ownerId: user.id })));
+    await Promise.all(
+      state.businesses.map((business: any) =>
+        kv.set(`business:${business.id}`, { ...business, _ownerId: user.id }),
+      ),
+    )
   }
-  return c.json({ saved: true });
-});
+  return c.json({ saved: true })
+})
 
 app.post(`${prefix}/pending-membership`, async (c) => {
-  const user = await authenticatedUser(c);
-  if (!user) return c.json({ error: "Unauthorized" }, 401);
-  const profile = await kv.get(`profile:${user.id}`);
-  if (profile?.role !== "business") return c.json({ error: "Only businesses can add customers." }, 403);
-  const { customer, business } = await c.req.json();
-  if (!customer?.phone || !business?.id) return c.json({ error: "Customer phone and business are required." }, 400);
-  const storedBusiness = await ownedBusiness(Number(business.id), user.id);
-  if (!storedBusiness) return c.json({ error: "You do not own this business." }, 403);
+  const user = await authenticatedUser(c)
+  if (!user) return c.json({ error: "Unauthorized" }, 401)
+  const profile = await kv.get(`profile:${user.id}`)
+  if (profile?.role !== "business")
+    return c.json({ error: "Only businesses can add customers." }, 403)
+  const { customer, business } = await c.req.json()
+  if (!customer?.phone || !business?.id)
+    return c.json({ error: "Customer phone and business are required." }, 400)
+  const storedBusiness = await ownedBusiness(Number(business.id), user.id)
+  if (!storedBusiness)
+    return c.json({ error: "You do not own this business." }, 403)
   await kv.set(`pending:${normalizePhone(customer.phone)}:${business.id}`, {
     business: storedBusiness,
     ownerId: user.id,
@@ -591,182 +1052,1685 @@ app.post(`${prefix}/pending-membership`, async (c) => {
     points: customer.points ?? 0,
     reward: customer.reward ?? "Welcome reward",
     updatedAt: new Date().toISOString(),
-  });
-  const customerLogin = await resolveCustomerUser(customer.phone);
-  await indexBusinessMember(Number(business.id), { phone: customer.phone, name: customer.name }, customerLogin?.userId);
-  return c.json({ saved: true });
-});
+  })
+  const customerLogin = await resolveCustomerUser(customer.phone)
+  await indexBusinessMember(
+    Number(business.id),
+    { phone: customer.phone, name: customer.name },
+    customerLogin?.userId,
+  )
+  return c.json({ saved: true })
+})
 
 app.post(`${prefix}/adjust-points`, async (c) => {
-  const user = await authenticatedUser(c);
-  if (!user) return c.json({ error: "Unauthorized" }, 401);
-  const profile = await kv.get(`profile:${user.id}`);
-  if (profile?.role !== "business") return c.json({ error: "Only businesses can adjust points." }, 403);
-  if (!await checkRateLimit("points", user.id, 120, 60 * 1000)) return c.json({ error: "Too many point updates. Wait a moment and try again." }, 429);
-  const { businessId, phone, delta } = await c.req.json();
-  const amount = Number(delta);
-  if (!Number.isInteger(amount) || amount === 0 || Math.abs(amount) > 1_000_000) return c.json({ error: "Enter a valid point amount." }, 400);
-  const business = await ownedBusiness(Number(businessId), user.id);
-  if (!business) return c.json({ error: "You do not own this business." }, 403);
-  const membershipKey = `pending:${normalizePhone(phone)}:${businessId}`;
-  const membership = await kv.get(membershipKey);
-  if (!membership || membership.ownerId !== user.id) return c.json({ error: "This customer is not connected to your business." }, 404);
-  const balance = Math.max(0, Number(membership.points ?? 0) + amount);
-  membership.points = balance;
-  membership.updatedAt = new Date().toISOString();
-  await kv.set(membershipKey, membership);
-  const transaction = { id: crypto.randomUUID(), businessId, customerName: membership.customerName, phone: membership.phone, type: amount > 0 ? "issued" : "adjusted", points: Math.abs(amount), delta: amount, description: amount > 0 ? "Points issued by business" : "Manual point adjustment", occurredAt: new Date().toISOString() };
-  await kv.set(`audit:${businessId}:${Date.now()}:${transaction.id}`, transaction);
-  const ownerState = await kv.get(`state:${user.id}`) ?? {};
-  ownerState.customers = (ownerState.customers ?? []).map((customer: any) => normalizePhone(customer.phone) === normalizePhone(phone) ? { ...customer, points: balance } : customer);
-  ownerState.activities = [transaction, ...(ownerState.activities ?? [])];
-  await kv.set(`state:${user.id}`, ownerState);
-  const customerLogin = await resolveCustomerUser(phone);
-  if (customerLogin) {
-    background(dispatchNotification(customerLogin.userId, "customer", {
-      type: "points_changed",
-      category: "loyaltyActivity",
-      title: amount > 0 ? `Points added at ${business.name}` : `Points updated at ${business.name}`,
-      body: `${Math.abs(amount).toLocaleString()} points ${amount > 0 ? "added" : "deducted"}. New balance: ${balance.toLocaleString()} points.`,
-      businessId: Number(businessId),
-      businessName: business.name,
-      data: { balance, delta: amount },
-    }));
+  const user = await authenticatedUser(c)
+  if (!user) return c.json({ error: "Unauthorized" }, 401)
+  const profile = await kv.get(`profile:${user.id}`)
+  if (profile?.role !== "business")
+    return c.json({ error: "Only businesses can adjust points." }, 403)
+  if (!(await checkRateLimit("points", user.id, 120, 60 * 1000)))
+    return c.json(
+      { error: "Too many point updates. Wait a moment and try again." },
+      429,
+    )
+  const { businessId, phone, delta } = await c.req.json()
+  const amount = Number(delta)
+  if (!Number.isInteger(amount) || amount === 0 || Math.abs(amount) > 1_000_000)
+    return c.json({ error: "Enter a valid point amount." }, 400)
+  const business = await ownedBusiness(Number(businessId), user.id)
+  if (!business) return c.json({ error: "You do not own this business." }, 403)
+  const membershipKey = `pending:${normalizePhone(phone)}:${businessId}`
+  const membership = await kv.get(membershipKey)
+  if (!membership || membership.ownerId !== user.id)
+    return c.json(
+      { error: "This customer is not connected to your business." },
+      404,
+    )
+  const balance = Math.max(0, Number(membership.points ?? 0) + amount)
+  membership.points = balance
+  membership.updatedAt = new Date().toISOString()
+  await kv.set(membershipKey, membership)
+  const transaction = {
+    id: crypto.randomUUID(),
+    businessId,
+    customerName: membership.customerName,
+    phone: membership.phone,
+    type: amount > 0 ? "issued" : "adjusted",
+    points: Math.abs(amount),
+    delta: amount,
+    description:
+      amount > 0 ? "Points issued by business" : "Manual point adjustment",
+    occurredAt: new Date().toISOString(),
   }
-  return c.json({ balance, transaction });
-});
+  await kv.set(
+    `audit:${businessId}:${Date.now()}:${transaction.id}`,
+    transaction,
+  )
+  const ownerState = (await kv.get(`state:${user.id}`)) ?? {}
+  ownerState.customers = (ownerState.customers ?? []).map((customer: any) =>
+    normalizePhone(customer.phone) === normalizePhone(phone)
+      ? { ...customer, points: balance }
+      : customer,
+  )
+  ownerState.activities = [transaction, ...(ownerState.activities ?? [])]
+  await kv.set(`state:${user.id}`, ownerState)
+  const customerLogin = await resolveCustomerUser(phone)
+  if (customerLogin) {
+    background(
+      dispatchNotification(customerLogin.userId, "customer", {
+        type: "points_changed",
+        category: "loyaltyActivity",
+        title:
+          amount > 0
+            ? `Points added at ${business.name}`
+            : `Points updated at ${business.name}`,
+        body: `${Math.abs(amount).toLocaleString()} points ${
+          amount > 0 ? "added" : "deducted"
+        }. New balance: ${balance.toLocaleString()} points.`,
+        businessId: Number(businessId),
+        businessName: business.name,
+        data: { balance, delta: amount },
+      }),
+    )
+  }
+  return c.json({ balance, transaction })
+})
 
 app.get(`${prefix}/pending-memberships`, async (c) => {
-  const user = await authenticatedUser(c);
-  if (!user) return c.json({ error: "Unauthorized" }, 401);
-  const profile = await kv.get(`profile:${user.id}`);
-  if (!profile?.phone) return c.json({ memberships: [] });
-  const memberships = await kv.getByPrefix(`pending:${normalizePhone(profile.phone)}:`);
-  const hydrated = await Promise.all(memberships.map(async (membership: any) => {
-    const businessId = Number(membership.business.id);
-    const [business, cards] = await Promise.all([
-      kv.get(`business:${businessId}`),
-      kv.getByPrefix(`rfid-card:${businessId}:`),
-    ]);
-    const activeCard = cards.find((card: any) =>
-      card.ownerId === membership.ownerId &&
-      card.status === "active" &&
-      normalizePhone(card.phone ?? "") === normalizePhone(profile.phone)
-    );
-    return {
-      ...membership,
-      business: business ?? membership.business,
-      rfidCardNumber: activeCard?.maskedIdentifier,
-    };
-  }));
-  return c.json({ memberships: hydrated });
-});
+  const user = await authenticatedUser(c)
+  if (!user) return c.json({ error: "Unauthorized" }, 401)
+  const profile = await kv.get(`profile:${user.id}`)
+  if (!profile?.phone) return c.json({ memberships: [] })
+  const memberships = await kv.getByPrefix(
+    `pending:${normalizePhone(profile.phone)}:`,
+  )
+  const hydrated = await Promise.all(
+    memberships.map(async (membership: any) => {
+      const businessId = Number(membership.business.id)
+      const [business, cards] = await Promise.all([
+        kv.get(`business:${businessId}`),
+        kv.getByPrefix(`rfid-card:${businessId}:`),
+      ])
+      const activeCard = cards.find(
+        (card: any) =>
+          card.ownerId === membership.ownerId &&
+          card.status === "active" &&
+          normalizePhone(card.phone ?? "") === normalizePhone(profile.phone),
+      )
+      return {
+        ...membership,
+        business: business ?? membership.business,
+        rfidCardNumber: activeCard?.maskedIdentifier,
+      }
+    }),
+  )
+  return c.json({ memberships: hydrated })
+})
 
 app.get(`${prefix}/customer-balance`, async (c) => {
-  const user = await authenticatedUser(c);
-  if (!user) return c.json({ error: "Unauthorized" }, 401);
-  const profile = await kv.get(`profile:${user.id}`);
-  if (profile?.role !== "business") return c.json({ error: "Only businesses can view customer balances." }, 403);
-  const businessId = Number(c.req.query("businessId"));
-  const phone = c.req.query("phone") ?? "";
-  if (!businessId || !phone) return c.json({ error: "Business and customer phone are required." }, 400);
-  if (!await ownedBusiness(businessId, user.id)) return c.json({ error: "You do not own this business." }, 403);
-  const membership = await kv.get(`pending:${normalizePhone(phone)}:${businessId}`);
-  if (!membership || membership.ownerId !== user.id) return c.json({ error: "Customer membership not found." }, 404);
-  const ownerState = await kv.get(`state:${user.id}`) ?? {};
-  const activities = (ownerState.activities ?? []).filter((activity: any) => Number(activity.businessId) === businessId && normalizePhone(activity.phone) === normalizePhone(phone));
-  return c.json({ balance: Number(membership.points ?? 0), updatedAt: membership.updatedAt, activities });
-});
+  const user = await authenticatedUser(c)
+  if (!user) return c.json({ error: "Unauthorized" }, 401)
+  const profile = await kv.get(`profile:${user.id}`)
+  if (profile?.role !== "business")
+    return c.json({ error: "Only businesses can view customer balances." }, 403)
+  const businessId = Number(c.req.query("businessId"))
+  const phone = c.req.query("phone") ?? ""
+  if (!businessId || !phone)
+    return c.json({ error: "Business and customer phone are required." }, 400)
+  if (!(await ownedBusiness(businessId, user.id)))
+    return c.json({ error: "You do not own this business." }, 403)
+  const membership = await kv.get(
+    `pending:${normalizePhone(phone)}:${businessId}`,
+  )
+  if (!membership || membership.ownerId !== user.id)
+    return c.json({ error: "Customer membership not found." }, 404)
+  const ownerState = (await kv.get(`state:${user.id}`)) ?? {}
+  const activities = (ownerState.activities ?? []).filter(
+    (activity: any) =>
+      Number(activity.businessId) === businessId &&
+      normalizePhone(activity.phone) === normalizePhone(phone),
+  )
+  return c.json({
+    balance: Number(membership.points ?? 0),
+    updatedAt: membership.updatedAt,
+    activities,
+  })
+})
 
-app.get(`${prefix}/business/:id`, async (c) => {
-  const user = await authenticatedUser(c);
-  if (!user) return c.json({ error: "Unauthorized" }, 401);
-  const business = await kv.get(`business:${c.req.param("id")}`);
-  if (!business) return c.json({ error: "This business QR code is not active." }, 404);
-  return c.json({ business });
-});
+const billingSettingsResponse = (row: any) =>
+  row
+    ? {
+        businessId: Number(row.business_id),
+        legalName: row.legal_name,
+        gstin: row.gstin ?? "",
+        addressLine1: row.address_line_1,
+        addressLine2: row.address_line_2 ?? "",
+        city: row.city,
+        stateName: row.state_name,
+        stateCode: row.state_code,
+        postalCode: row.postal_code,
+        invoicePrefix: row.invoice_prefix,
+        creditNotePrefix: row.credit_note_prefix,
+        pointsPerRupee: Number(row.points_per_rupee),
+        receiptFooter: row.receipt_footer ?? "",
+        catalogCustomFields: Array.isArray(row.catalog_custom_fields)
+          ? row.catalog_custom_fields
+          : [],
+        catalogCustomOptions:
+          row.catalog_option_values?.custom &&
+          typeof row.catalog_option_values.custom === "object"
+            ? row.catalog_option_values.custom
+            : {},
+        catalogOptions: {
+          brands: Array.isArray(row.catalog_option_values?.brands)
+            ? row.catalog_option_values.brands
+            : [],
+          designs: Array.isArray(row.catalog_option_values?.designs)
+            ? row.catalog_option_values.designs
+            : [],
+          sizes: Array.isArray(row.catalog_option_values?.sizes)
+            ? row.catalog_option_values.sizes
+            : [],
+          categories: Array.isArray(row.catalog_option_values?.categories)
+            ? row.catalog_option_values.categories
+            : [],
+        },
+      }
+    : null
 
-app.post(`${prefix}/join-business`, async (c) => {
-  const user = await authenticatedUser(c);
-  if (!user) return c.json({ error: "Unauthorized" }, 401);
-  const profile = await kv.get(`profile:${user.id}`);
-  if (profile?.role !== "customer") return c.json({ error: "Only customers can join businesses." }, 403);
-  const { businessId } = await c.req.json();
-  const business = await kv.get(`business:${businessId}`);
-  if (!business) return c.json({ error: "This business QR code is not active." }, 404);
-  const key = `pending:${normalizePhone(profile.phone)}:${business.id}`;
-  const existing = await kv.get(key);
-  if (!existing) {
-    await kv.set(key, { business, ownerId: business._ownerId, customerName: profile.name, phone: profile.phone, points: 0, reward: "Welcome reward", updatedAt: new Date().toISOString() });
-    if (business._ownerId) {
-      const ownerState = await kv.get(`state:${business._ownerId}`) ?? {};
-      const customers = Array.isArray(ownerState.customers) ? ownerState.customers : [];
-      if (!customers.some((customer: any) => normalizePhone(customer.phone) === normalizePhone(profile.phone))) {
-        ownerState.customers = [{ id: Date.now(), name: profile.name, phone: profile.phone, points: 0, reward: "Welcome reward", joined: "Just now" }, ...customers];
-        await kv.set(`state:${business._ownerId}`, ownerState);
+const catalogResponse = (row: any) => ({
+  id: row.id,
+  businessId: Number(row.business_id),
+  itemType: row.item_type,
+  name: row.name,
+  category: row.category ?? "",
+  brand: row.brand ?? "",
+  design: row.design ?? "",
+  size: row.size ?? "",
+  sku: row.sku ?? "",
+  barcode: row.barcode ?? "",
+  hsnSac: row.hsn_sac,
+  unit: row.unit,
+  pricePaise: Number(row.price_paise),
+  gstRateBps: Number(row.gst_rate_bps),
+  priceIncludesTax: Boolean(row.price_includes_tax),
+  stockQuantity: row.stock_quantity == null ? null : Number(row.stock_quantity),
+  customValues:
+    row.custom_values && typeof row.custom_values === "object"
+      ? row.custom_values
+      : {},
+  discountType: ["percent", "fixed"].includes(row.discount_type)
+    ? row.discount_type
+    : "none",
+  discountValue: Number(row.discount_value ?? 0),
+  active: Boolean(row.active),
+})
+
+app.get(`${prefix}/billing/settings`, async (c) => {
+  const user = await authenticatedUser(c)
+  if (!user) return c.json({ error: "Unauthorized" }, 401)
+  const businessId = Number(c.req.query("businessId"))
+  if (!(await ownedBusiness(businessId, user.id)))
+    return c.json({ error: "You do not own this business." }, 403)
+  const { data, error } = await adminClient()
+    .from("billing_settings")
+    .select("*")
+    .eq("business_id", businessId)
+    .maybeSingle()
+  if (error) throw error
+  return c.json({ settings: billingSettingsResponse(data) })
+})
+
+app.put(`${prefix}/billing/settings`, async (c) => {
+  const user = await authenticatedUser(c)
+  if (!user) return c.json({ error: "Unauthorized" }, 401)
+  const body = await c.req.json()
+  const businessId = Number(body.businessId)
+  if (!(await ownedBusiness(businessId, user.id)))
+    return c.json({ error: "You do not own this business." }, 403)
+  const gstin = String(body.gstin ?? "")
+    .trim()
+    .toUpperCase()
+  if (gstin && !/^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][1-9A-Z]Z[0-9A-Z]$/.test(gstin))
+    return c.json(
+      { error: "Enter a valid 15-character GSTIN or leave it blank." },
+      400,
+    )
+  const required = [
+    "legalName",
+    "addressLine1",
+    "city",
+    "stateName",
+    "stateCode",
+    "postalCode",
+  ]
+  if (required.some((field) => !String(body[field] ?? "").trim()))
+    return c.json({ error: "Complete all required seller details." }, 400)
+  const prefixValue = (value: unknown, fallback: string) =>
+    String(value || fallback)
+      .trim()
+      .toUpperCase()
+  const invoicePrefix = prefixValue(body.invoicePrefix, "INV")
+  const creditNotePrefix = prefixValue(body.creditNotePrefix, "CN")
+  if (
+    !/^[A-Z0-9/-]{1,12}$/.test(invoicePrefix) ||
+    !/^[A-Z0-9/-]{1,12}$/.test(creditNotePrefix)
+  )
+    return c.json(
+      {
+        error: "Document prefixes can contain only letters, numbers, /, and -.",
+      },
+      400,
+    )
+  const catalogCustomFields = Array.isArray(body.catalogCustomFields)
+    ? body.catalogCustomFields
+        .map((field: unknown) => String(field).trim().slice(0, 40))
+        .filter(Boolean)
+        .filter(
+          (field: string, index: number, fields: string[]) =>
+            fields.findIndex(
+              (current) => current.toLowerCase() === field.toLowerCase(),
+            ) === index,
+        )
+        .slice(0, 12)
+    : []
+  const textOptions = (group: string) =>
+    Array.isArray(body.catalogOptions?.[group])
+      ? body.catalogOptions[group]
+          .map((value: unknown) => String(value).trim().slice(0, 80))
+          .filter(Boolean)
+          .filter(
+            (value: string, index: number, values: string[]) =>
+              values.findIndex(
+                (current) => current.toLowerCase() === value.toLowerCase(),
+              ) === index,
+          )
+          .slice(0, 60)
+      : []
+  const customOptions = Object.fromEntries(
+    catalogCustomFields.map((field: string) => [
+      field,
+      Array.isArray(body.catalogCustomOptions?.[field])
+        ? body.catalogCustomOptions[field]
+            .map((value: unknown) => String(value).trim().slice(0, 80))
+            .filter(Boolean)
+            .filter(
+              (value: string, index: number, values: string[]) =>
+                values.findIndex(
+                  (current) => current.toLowerCase() === value.toLowerCase(),
+                ) === index,
+            )
+            .slice(0, 60)
+        : [],
+    ]),
+  )
+  const row = {
+    business_id: businessId,
+    owner_user_id: user.id,
+    legal_name: String(body.legalName).trim().slice(0, 160),
+    gstin,
+    address_line_1: String(body.addressLine1).trim().slice(0, 200),
+    address_line_2:
+      String(body.addressLine2 ?? "")
+        .trim()
+        .slice(0, 200) || null,
+    city: String(body.city).trim().slice(0, 80),
+    state_name: String(body.stateName).trim().slice(0, 80),
+    state_code: String(body.stateCode).trim().padStart(2, "0").slice(0, 2),
+    postal_code: String(body.postalCode).replace(/\D/g, "").slice(0, 6),
+    invoice_prefix: invoicePrefix,
+    credit_note_prefix: creditNotePrefix,
+    points_per_rupee: Math.max(
+      0,
+      Math.min(1000, Number(body.pointsPerRupee) || 0),
+    ),
+    receipt_footer: String(body.receiptFooter ?? "")
+      .trim()
+      .slice(0, 500),
+    catalog_custom_fields: catalogCustomFields,
+    catalog_option_values: {
+      brands: textOptions("brands"),
+      designs: textOptions("designs"),
+      sizes: textOptions("sizes"),
+      categories: textOptions("categories"),
+      custom: customOptions,
+    },
+    updated_at: new Date().toISOString(),
+  }
+  const { data, error } = await adminClient()
+    .from("billing_settings")
+    .upsert(row)
+    .select("*")
+    .single()
+  if (error) {
+    console.log("Unable to save billing settings", error.message)
+    return c.json(
+      { error: `Unable to save billing settings: ${error.message}` },
+      400,
+    )
+  }
+  return c.json({ settings: billingSettingsResponse(data) })
+})
+
+app.get(`${prefix}/billing/catalog`, async (c) => {
+  const user = await authenticatedUser(c)
+  if (!user) return c.json({ error: "Unauthorized" }, 401)
+  const businessId = Number(c.req.query("businessId"))
+  if (!(await ownedBusiness(businessId, user.id)))
+    return c.json({ error: "You do not own this business." }, 403)
+  const query = String(c.req.query("query") ?? "").trim()
+  const status = String(c.req.query("status") ?? "active")
+  const offset = Math.max(0, Number(c.req.query("offset")) || 0)
+  const limit = Math.max(
+    1,
+    Math.min(1000, Number(c.req.query("limit")) || 1000),
+  )
+  let request = adminClient()
+    .from("billing_catalog_items")
+    .select("*")
+    .eq("business_id", businessId)
+    .order("name")
+  if (status !== "all") request = request.eq("active", status === "active")
+  if (query)
+    request = request.or(
+      `name.ilike.%${query.replace(/[%(),]/g, "")}%,brand.ilike.%${query.replace(/[%(),]/g, "")}%,design.ilike.%${query.replace(/[%(),]/g, "")}%,size.ilike.%${query.replace(/[%(),]/g, "")}%,category.ilike.%${query.replace(/[%(),]/g, "")}%,sku.ilike.%${query.replace(/[%(),]/g, "")}%,barcode.ilike.%${query.replace(/[%(),]/g, "")}%,hsn_sac.ilike.%${query.replace(/[%(),]/g, "")}%`,
+    )
+  const { data, error } = await request.range(offset, offset + limit - 1)
+  if (error) throw error
+  return c.json({ items: (data ?? []).map(catalogResponse) })
+})
+
+const catalogRow = (
+  body: any,
+  userId: string,
+  businessId: number,
+  id: string,
+) => {
+  const gstRateBps = Number(body.gstRateBps)
+  const discountType = ["percent", "fixed"].includes(body.discountType)
+    ? body.discountType
+    : "none"
+  const discountValue = Math.max(0, Number(body.discountValue) || 0)
+  if (!String(body.name ?? "").trim() || !String(body.hsnSac ?? "").trim())
+    throw new Error("Item name and HSN/SAC are required.")
+  if (!validGstRates.has(gstRateBps))
+    throw new Error("Choose a supported GST rate.")
+  if (discountType === "percent" && discountValue > 100)
+    throw new Error("Percentage discount cannot exceed 100%.")
+  return {
+    id,
+    business_id: businessId,
+    owner_user_id: userId,
+    item_type: body.itemType === "service" ? "service" : "product",
+    name: String(body.name).trim().slice(0, 160),
+    category:
+      String(body.category ?? "")
+        .trim()
+        .slice(0, 80) || null,
+    brand:
+      String(body.brand ?? "")
+        .trim()
+        .slice(0, 80) || null,
+    design:
+      String(body.design ?? "")
+        .trim()
+        .slice(0, 80) || null,
+    size:
+      String(body.size ?? "")
+        .trim()
+        .slice(0, 80) || null,
+    sku:
+      String(body.sku ?? "")
+        .trim()
+        .slice(0, 80) || null,
+    barcode:
+      String(body.barcode ?? "")
+        .trim()
+        .slice(0, 120) || null,
+    hsn_sac: String(body.hsnSac).trim().slice(0, 24),
+    unit: String(body.unit || "unit")
+      .trim()
+      .slice(0, 24),
+    price_paise: normalizeMoney(body.pricePaise),
+    gst_rate_bps: gstRateBps,
+    price_includes_tax: body.priceIncludesTax !== false,
+    stock_quantity:
+      body.stockQuantity === null || body.stockQuantity === ""
+        ? null
+        : Math.max(0, Math.round(Number(body.stockQuantity) * 1000) / 1000),
+    custom_values:
+      body.customValues && typeof body.customValues === "object"
+        ? Object.fromEntries(
+            Object.entries(body.customValues)
+              .slice(0, 12)
+              .map(([key, value]) => [
+                String(key).slice(0, 40),
+                String(value ?? "").slice(0, 160),
+              ]),
+          )
+        : {},
+    discount_type: discountType,
+    discount_value:
+      discountType === "none" ? 0 : Math.round(discountValue * 100) / 100,
+    active: body.active !== false,
+    updated_at: new Date().toISOString(),
+  }
+}
+
+app.post(`${prefix}/billing/catalog`, async (c) => {
+  const user = await authenticatedUser(c)
+  if (!user) return c.json({ error: "Unauthorized" }, 401)
+  const body = await c.req.json()
+  const businessId = Number(body.businessId)
+  if (!(await ownedBusiness(businessId, user.id)))
+    return c.json({ error: "You do not own this business." }, 403)
+  try {
+    const { data, error } = await adminClient()
+      .from("billing_catalog_items")
+      .insert(catalogRow(body, user.id, businessId, crypto.randomUUID()))
+      .select("*")
+      .single()
+    if (error) throw error
+    return c.json({ item: catalogResponse(data) }, 201)
+  } catch (error: any) {
+    return c.json(
+      {
+        error: error?.message?.includes("duplicate")
+          ? "SKU or barcode already exists for this business."
+          : (error?.message ?? "Unable to save item."),
+      },
+      400,
+    )
+  }
+})
+
+app.post(`${prefix}/billing/catalog/bulk`, async (c) => {
+  const user = await authenticatedUser(c)
+  if (!user) return c.json({ error: "Unauthorized" }, 401)
+  const body = await c.req.json()
+  const businessId = Number(body.businessId)
+  if (!(await ownedBusiness(businessId, user.id)))
+    return c.json({ error: "You do not own this business." }, 403)
+  const rows = Array.isArray(body.rows) ? body.rows.slice(0, 500) : []
+  if (rows.length === 0)
+    return c.json({ error: "Add at least one product to import." }, 400)
+
+  const lookupExisting = async (
+    column: "barcode" | "sku",
+    values: string[],
+  ) => {
+    const existing = new Set<string>()
+    const uniqueValues = Array.from(new Set(values.filter(Boolean)))
+    for (let index = 0; index < uniqueValues.length; index += 100) {
+      const { data, error } = await adminClient()
+        .from("billing_catalog_items")
+        .select(column)
+        .eq("business_id", businessId)
+        .in(column, uniqueValues.slice(index, index + 100))
+      if (error) throw error
+      ;(data ?? []).forEach((item: any) => {
+        if (item[column]) existing.add(String(item[column]))
+      })
+    }
+    return existing
+  }
+
+  try {
+    const [existingBarcodes, existingSkus] = await Promise.all([
+      lookupExisting(
+        "barcode",
+        rows.map((row: any) => String(row?.item?.barcode ?? "").trim()),
+      ),
+      lookupExisting(
+        "sku",
+        rows.map((row: any) => String(row?.item?.sku ?? "").trim()),
+      ),
+    ])
+    const seenBarcodes = new Set<string>()
+    const seenSkus = new Set<string>()
+    const errors: any[] = []
+    const validRows: { input: any; row: any }[] = []
+
+    rows.forEach((input: any) => {
+      const barcode = String(input?.item?.barcode ?? "").trim()
+      const sku = String(input?.item?.sku ?? "").trim()
+      const rowErrors: string[] = []
+      if (
+        barcode &&
+        (existingBarcodes.has(barcode) || seenBarcodes.has(barcode))
+      )
+        rowErrors.push("Barcode already exists.")
+      if (sku && (existingSkus.has(sku) || seenSkus.has(sku)))
+        rowErrors.push("SKU already exists.")
+      try {
+        const row = catalogRow(
+          input?.item ?? {},
+          user.id,
+          businessId,
+          crypto.randomUUID(),
+        )
+        if (rowErrors.length === 0) validRows.push({ input, row })
+      } catch (error: any) {
+        rowErrors.push(error?.message ?? "Invalid catalog item.")
+      }
+      if (barcode) seenBarcodes.add(barcode)
+      if (sku) seenSkus.add(sku)
+      if (rowErrors.length > 0)
+        errors.push({
+          sourceRow: Number(input?.sourceRow ?? 0),
+          source: input?.source ?? {},
+          error: rowErrors.join(" "),
+        })
+    })
+
+    const imported: any[] = []
+    if (validRows.length > 0) {
+      const { data, error } = await adminClient()
+        .from("billing_catalog_items")
+        .insert(validRows.map((item) => item.row))
+        .select("*")
+      if (!error) {
+        imported.push(...(data ?? []).map(catalogResponse))
+      } else {
+        for (const item of validRows) {
+          const { data: inserted, error: insertError } = await adminClient()
+            .from("billing_catalog_items")
+            .insert(item.row)
+            .select("*")
+            .single()
+          if (insertError) {
+            errors.push({
+              sourceRow: Number(item.input?.sourceRow ?? 0),
+              source: item.input?.source ?? {},
+              error: insertError.message?.includes("duplicate")
+                ? "SKU or barcode already exists."
+                : insertError.message,
+            })
+          } else {
+            imported.push(catalogResponse(inserted))
+          }
+        }
       }
     }
-    await indexBusinessMember(Number(business.id), { phone: profile.phone, name: profile.name }, user.id);
-    if (business._ownerId) {
-      background(dispatchNotification(String(business._ownerId), "business", {
+
+    let updatedSettings: any = null
+    let optionSyncWarning = ""
+    if (imported.length > 0) {
+      const { data: currentSettings, error: settingsLoadError } =
+        await adminClient()
+          .from("billing_settings")
+          .select("*")
+          .eq("business_id", businessId)
+          .maybeSingle()
+      if (settingsLoadError || !currentSettings) {
+        optionSyncWarning =
+          "Products were imported, but catalog options could not be updated."
+      } else {
+        const mergeValues = (
+          existing: unknown,
+          additions: unknown[],
+          limit: number,
+        ) =>
+          [
+            ...(Array.isArray(existing) ? existing : []),
+            ...additions
+              .map((value) => String(value ?? "").trim())
+              .filter(Boolean),
+          ]
+            .filter(
+              (value, index, values) =>
+                values.findIndex(
+                  (candidate) =>
+                    String(candidate).toLowerCase() ===
+                    String(value).toLowerCase(),
+                ) === index,
+            )
+            .slice(0, limit)
+        const currentOptionValues =
+          currentSettings.catalog_option_values &&
+          typeof currentSettings.catalog_option_values === "object"
+            ? currentSettings.catalog_option_values
+            : {}
+        const importedCustomFields = imported.flatMap((item: any) =>
+          Object.keys(item.customValues ?? {}),
+        )
+        const customFields = mergeValues(
+          currentSettings.catalog_custom_fields,
+          importedCustomFields,
+          12,
+        )
+        const customOptions = Object.fromEntries(
+          customFields.map((field: any) => [
+            field,
+            mergeValues(
+              currentOptionValues.custom?.[field],
+              imported.map(
+                (item: any) =>
+                  Object.entries(item.customValues ?? {}).find(
+                    ([key]) =>
+                      key.toLowerCase() === String(field).toLowerCase(),
+                  )?.[1],
+              ),
+              60,
+            ),
+          ]),
+        )
+        const nextOptionValues = {
+          ...currentOptionValues,
+          brands: mergeValues(
+            currentOptionValues.brands,
+            imported.map((item: any) => item.brand),
+            60,
+          ),
+          designs: mergeValues(
+            currentOptionValues.designs,
+            imported.map((item: any) => item.design),
+            60,
+          ),
+          sizes: mergeValues(
+            currentOptionValues.sizes,
+            imported.map((item: any) => item.size),
+            60,
+          ),
+          categories: mergeValues(
+            currentOptionValues.categories,
+            imported.map((item: any) => item.category),
+            60,
+          ),
+          custom: customOptions,
+        }
+        const { data: savedSettings, error: settingsSaveError } =
+          await adminClient()
+            .from("billing_settings")
+            .update({
+              catalog_custom_fields: customFields,
+              catalog_option_values: nextOptionValues,
+              updated_at: new Date().toISOString(),
+            })
+            .eq("business_id", businessId)
+            .select("*")
+            .single()
+        if (settingsSaveError) {
+          optionSyncWarning =
+            "Products were imported, but catalog options could not be updated."
+        } else {
+          updatedSettings = billingSettingsResponse(savedSettings)
+        }
+      }
+    }
+
+    return c.json({
+      importedCount: imported.length,
+      items: imported,
+      errors,
+      settings: updatedSettings,
+      optionSyncWarning,
+    })
+  } catch (error: any) {
+    return c.json(
+      { error: error?.message ?? "Unable to import the catalog." },
+      400,
+    )
+  }
+})
+
+app.put(`${prefix}/billing/catalog/:id`, async (c) => {
+  const user = await authenticatedUser(c)
+  if (!user) return c.json({ error: "Unauthorized" }, 401)
+  const body = await c.req.json()
+  const businessId = Number(body.businessId)
+  if (!(await ownedBusiness(businessId, user.id)))
+    return c.json({ error: "You do not own this business." }, 403)
+  try {
+    const row = catalogRow(body, user.id, businessId, c.req.param("id"))
+    const { data, error } = await adminClient()
+      .from("billing_catalog_items")
+      .update(row)
+      .eq("id", c.req.param("id"))
+      .eq("business_id", businessId)
+      .select("*")
+      .single()
+    if (error) throw error
+    return c.json({ item: catalogResponse(data) })
+  } catch (error: any) {
+    return c.json({ error: error?.message ?? "Unable to update item." }, 400)
+  }
+})
+
+app.get(`${prefix}/billing/customers`, async (c) => {
+  const user = await authenticatedUser(c)
+  if (!user) return c.json({ error: "Unauthorized" }, 401)
+  const businessId = Number(c.req.query("businessId"))
+  const query = String(c.req.query("query") ?? "")
+    .trim()
+    .toLowerCase()
+  if (!(await ownedBusiness(businessId, user.id)))
+    return c.json({ error: "You do not own this business." }, 403)
+  const state = (await kv.get(`state:${user.id}`)) ?? {}
+  const customers = (state.customers ?? [])
+    .filter(
+      (customer: any) =>
+        !query ||
+        `${customer.name} ${customer.phone} ${customer.id}`
+          .toLowerCase()
+          .includes(query),
+    )
+    .slice(0, 30)
+  return c.json({
+    customers: customers.map((customer: any) => ({
+      id: String(customer.id),
+      name: customer.name,
+      phone: customer.phone,
+      maskedPhone: maskPhone(customer.phone),
+      points: Number(customer.points ?? 0),
+    })),
+  })
+})
+
+app.post(`${prefix}/billing/customers`, async (c) => {
+  const user = await authenticatedUser(c)
+  if (!user) return c.json({ error: "Unauthorized" }, 401)
+  const body = await c.req.json()
+  const businessId = Number(body.businessId)
+  const business = await ownedBusiness(businessId, user.id)
+  if (!business) return c.json({ error: "You do not own this business." }, 403)
+  const name = String(body.name ?? "")
+    .trim()
+    .slice(0, 120)
+  const phone = String(body.phone ?? "")
+    .trim()
+    .slice(0, 40)
+  const normalizedPhone = normalizePhone(phone)
+  if (!name || normalizedPhone.length < 7)
+    return c.json(
+      { error: "Enter a customer name and valid phone number." },
+      400,
+    )
+  const state = (await kv.get(`state:${user.id}`)) ?? {}
+  const customers = Array.isArray(state.customers) ? state.customers : []
+  let customer = customers.find(
+    (item: any) => normalizePhone(item.phone) === normalizedPhone,
+  )
+  if (!customer) {
+    customer = {
+      id: Date.now(),
+      name,
+      phone,
+      points: 0,
+      reward: "Welcome reward",
+      joined: new Intl.DateTimeFormat("en", { dateStyle: "medium" }).format(
+        new Date(),
+      ),
+    }
+    state.customers = [customer, ...customers]
+    await kv.set(`state:${user.id}`, state)
+  }
+  const membershipKey = `pending:${normalizedPhone}:${businessId}`
+  const membership = await kv.get(membershipKey)
+  if (!membership) {
+    await kv.set(membershipKey, {
+      business,
+      ownerId: user.id,
+      customerName: customer.name,
+      phone: customer.phone,
+      points: Number(customer.points ?? 0),
+      reward: customer.reward ?? "Welcome reward",
+      updatedAt: new Date().toISOString(),
+    })
+  }
+  const customerLogin = await resolveCustomerUser(customer.phone)
+  await indexBusinessMember(
+    businessId,
+    { phone: customer.phone, name: customer.name },
+    customerLogin?.userId,
+  )
+  if (!membership && customerLogin) {
+    background(
+      dispatchNotification(customerLogin.userId, "customer", {
         type: "member_joined",
-        category: "businessOperations",
-        title: "New Perklyn member",
-        body: `${profile.name} joined ${business.name}.`,
-        businessId: Number(business.id),
+        category: "loyaltyActivity",
+        title: `Added to ${business.name}`,
+        body: `${business.name} added you to their loyalty program. You can now earn points from purchases.`,
+        businessId,
         businessName: business.name,
-      }));
+      }),
+    )
+  }
+  return c.json(
+    {
+      customer: {
+        id: String(customer.id),
+        name: customer.name,
+        phone: customer.phone,
+        maskedPhone: maskPhone(customer.phone),
+        points: Number(customer.points ?? 0),
+      },
+      created: !membership,
+    },
+    membership ? 200 : 201,
+  )
+})
+
+app.post(`${prefix}/billing/quote`, async (c) => {
+  const user = await authenticatedUser(c)
+  if (!user) return c.json({ error: "Unauthorized" }, 401)
+  const body = await c.req.json()
+  const businessId = Number(body.businessId)
+  if (!(await ownedBusiness(businessId, user.id)))
+    return c.json({ error: "You do not own this business." }, 403)
+  const { data: settings } = await adminClient()
+    .from("billing_settings")
+    .select("*")
+    .eq("business_id", businessId)
+    .maybeSingle()
+  if (!settings)
+    return c.json(
+      { error: "Complete billing settings before creating a bill." },
+      409,
+    )
+  try {
+    const quote = calculateBillingQuote(
+      body.lines,
+      body.cartDiscountPaise,
+      settings.state_code,
+      String(body.placeOfSupplyCode || settings.state_code),
+    )
+    const points = body.customerPhone
+      ? Math.floor((quote.totalPaise * Number(settings.points_per_rupee)) / 100)
+      : 0
+    return c.json({ quote, points })
+  } catch (error: any) {
+    return c.json({ error: error?.message ?? "Unable to calculate bill." }, 400)
+  }
+})
+
+const invoiceSummaryResponse = (row: any) => ({
+  id: row.id,
+  invoiceNumber: row.invoice_number,
+  status: row.status,
+  customerName: row.customer_name ?? undefined,
+  customerPhone: row.customer_phone ?? undefined,
+  totalPaise: Number(row.total_paise),
+  pointsAwarded: Number(row.points_awarded),
+  pointsReversed: Number(row.points_reversed),
+  createdAt: row.created_at,
+})
+
+app.post(`${prefix}/billing/invoices`, async (c) => {
+  const user = await authenticatedUser(c)
+  if (!user) return c.json({ error: "Unauthorized" }, 401)
+  if (!(await checkRateLimit("billing-finalize", user.id, 120, 60 * 60 * 1000)))
+    return c.json({ error: "Too many billing requests. Try again later." }, 429)
+  const body = await c.req.json()
+  const businessId = Number(body.businessId)
+  const business = await ownedBusiness(businessId, user.id)
+  if (!business) return c.json({ error: "You do not own this business." }, 403)
+  const { data: settings, error: settingsError } = await adminClient()
+    .from("billing_settings")
+    .select("*")
+    .eq("business_id", businessId)
+    .maybeSingle()
+  if (settingsError) throw settingsError
+  if (!settings)
+    return c.json(
+      { error: "Complete billing settings before creating a bill." },
+      409,
+    )
+  try {
+    const quote = calculateBillingQuote(
+      body.lines,
+      body.cartDiscountPaise,
+      settings.state_code,
+      String(body.placeOfSupplyCode || settings.state_code),
+    )
+    const payments = Array.isArray(body.payments)
+      ? body.payments.map((payment: any) => ({
+          id: crypto.randomUUID(),
+          payment_mode: String(payment.mode),
+          amount_paise: normalizeMoney(payment.amountPaise),
+          reference: String(payment.reference ?? "")
+            .trim()
+            .slice(0, 120),
+        }))
+      : []
+    if (
+      payments.length < 1 ||
+      payments.some(
+        (payment: any) =>
+          !validPaymentModes.has(payment.payment_mode) ||
+          payment.amount_paise <= 0,
+      )
+    )
+      throw new Error("Add valid payment details.")
+    if (
+      payments.reduce(
+        (sum: number, payment: any) => sum + payment.amount_paise,
+        0,
+      ) !== quote.totalPaise
+    )
+      throw new Error("Payment amounts must exactly match the bill total.")
+    const customerPhone = String(body.customer?.phone ?? "")
+    let membership: any = null
+    const membershipKey = customerPhone
+      ? `pending:${normalizePhone(customerPhone)}:${businessId}`
+      : null
+    if (membershipKey) {
+      membership = await kv.get(membershipKey)
+      if (!membership || membership.ownerId !== user.id)
+        throw new Error(
+          "The selected loyalty customer is no longer connected to this business.",
+        )
+    }
+    const pointsAwarded = membership
+      ? Math.floor((quote.totalPaise * Number(settings.points_per_rupee)) / 100)
+      : 0
+    const invoiceId = crypto.randomUUID()
+    const idempotencyKey = String(body.idempotencyKey || crypto.randomUUID())
+    const activity = membership
+      ? {
+          id: `billing:${invoiceId}`,
+          businessId,
+          customerName: membership.customerName,
+          phone: membership.phone,
+          type: "issued",
+          source: "billing",
+          points: pointsAwarded,
+          description: `POS invoice points: ${settings.invoice_prefix}`,
+          occurredAt: new Date().toISOString(),
+        }
+      : null
+    const rpcItems = quote.lines.map((line: any) => ({
+      id: crypto.randomUUID(),
+      catalog_item_id: line.catalogItemId ?? "",
+      line_number: line.lineNumber,
+      item_type: line.itemType,
+      name: line.name,
+      hsn_sac: line.hsnSac,
+      unit: line.unit,
+      quantity: line.quantity,
+      unit_price_paise: line.unitPricePaise,
+      price_includes_tax: line.priceIncludesTax,
+      gst_rate_bps: line.gstRateBps,
+      gross_before_discount_paise: line.grossBeforeDiscountPaise,
+      line_discount_paise: line.lineDiscountPaise,
+      allocated_cart_discount_paise: line.allocatedCartDiscountPaise,
+      taxable_paise: line.taxablePaise,
+      cgst_paise: line.cgstPaise,
+      sgst_paise: line.sgstPaise,
+      igst_paise: line.igstPaise,
+      total_paise: line.totalPaise,
+    }))
+    const { data: result, error } = await adminClient().rpc(
+      "perklyn_finalize_billing_invoice",
+      {
+        p_business_id: businessId,
+        p_owner_user_id: user.id,
+        p_invoice: {
+          id: invoiceId,
+          idempotency_key: idempotencyKey,
+          invoice_prefix: settings.invoice_prefix,
+          fiscal_year: currentIndianFiscalYear(),
+          customer_id: membership ? String(body.customer.id) : "",
+          customer_name: membership?.customerName ?? "",
+          customer_phone: membership?.phone ?? "",
+          place_of_supply_code: String(
+            body.placeOfSupplyCode || settings.state_code,
+          ),
+          subtotal_paise: quote.subtotalPaise,
+          line_discount_paise: quote.lineDiscountPaise,
+          cart_discount_paise: quote.cartDiscountPaise,
+          taxable_paise: quote.taxablePaise,
+          cgst_paise: quote.cgstPaise,
+          sgst_paise: quote.sgstPaise,
+          igst_paise: quote.igstPaise,
+          total_paise: quote.totalPaise,
+          points_per_rupee_snapshot: Number(settings.points_per_rupee),
+          points_awarded: pointsAwarded,
+          seller_snapshot: billingSettingsResponse(settings),
+        },
+        p_items: rpcItems,
+        p_payments: payments,
+        p_membership_key: membershipKey,
+        p_activity: activity,
+      },
+    )
+    if (error) throw error
+    const invoice = result.invoice
+    if (membership && pointsAwarded > 0) {
+      const customerLogin = await resolveCustomerUser(membership.phone)
+      if (customerLogin)
+        background(
+          dispatchNotification(customerLogin.userId, "customer", {
+            type: "points_changed",
+            category: "loyaltyActivity",
+            title: `Purchase points from ${business.name}`,
+            body: `${pointsAwarded.toLocaleString()} points added from invoice ${invoice.invoice_number}. New balance: ${Number(result.balance).toLocaleString()} points.`,
+            businessId,
+            businessName: business.name,
+            data: {
+              balance: Number(result.balance),
+              delta: pointsAwarded,
+              invoiceId,
+            },
+          }),
+        )
+    }
+    return c.json(
+      {
+        invoice: invoiceSummaryResponse(invoice),
+        balance: result.balance,
+        quote,
+        pointsAwarded,
+      },
+      result.duplicate ? 200 : 201,
+    )
+  } catch (error: any) {
+    return c.json(
+      { error: error?.message ?? "Unable to finalize invoice." },
+      400,
+    )
+  }
+})
+
+app.get(`${prefix}/billing/invoices`, async (c) => {
+  const user = await authenticatedUser(c)
+  if (!user) return c.json({ error: "Unauthorized" }, 401)
+  const businessId = Number(c.req.query("businessId"))
+  if (!(await ownedBusiness(businessId, user.id)))
+    return c.json({ error: "You do not own this business." }, 403)
+  const query = String(c.req.query("query") ?? "")
+    .replace(/[%(),]/g, "")
+    .trim()
+  let request = adminClient()
+    .from("billing_invoices")
+    .select("*")
+    .eq("business_id", businessId)
+    .order("created_at", { ascending: false })
+  if (query)
+    request = request.or(
+      `invoice_number.ilike.%${query}%,customer_name.ilike.%${query}%,customer_phone.ilike.%${query}%`,
+    )
+  const { data, error } = await request.limit(100)
+  if (error) throw error
+  return c.json({ invoices: (data ?? []).map(invoiceSummaryResponse) })
+})
+
+app.get(`${prefix}/billing/reports/sold`, async (c) => {
+  const user = await authenticatedUser(c)
+  if (!user) return c.json({ error: "Unauthorized" }, 401)
+  const businessId = Number(c.req.query("businessId"))
+  if (!(await ownedBusiness(businessId, user.id)))
+    return c.json({ error: "You do not own this business." }, 403)
+
+  const from = c.req.query("from")
+  const to = c.req.query("to")
+  const fromDate = from ? new Date(from) : null
+  const toDate = to ? new Date(to) : null
+  if (
+    (fromDate && Number.isNaN(fromDate.getTime())) ||
+    (toDate && Number.isNaN(toDate.getTime()))
+  ) {
+    return c.json({ error: "Invalid sold report period." }, 400)
+  }
+  if (fromDate && toDate && fromDate >= toDate) {
+    return c.json(
+      { error: "The sold report From date must be before the To date." },
+      400,
+    )
+  }
+
+  let invoiceRequest = adminClient()
+    .from("billing_invoices")
+    .select("id")
+    .eq("business_id", businessId)
+    .order("created_at", { ascending: false })
+    .limit(1000)
+  if (fromDate)
+    invoiceRequest = invoiceRequest.gte("created_at", fromDate.toISOString())
+  if (toDate)
+    invoiceRequest = invoiceRequest.lt("created_at", toDate.toISOString())
+  const { data: invoices, error: invoiceError } = await invoiceRequest
+  if (invoiceError) throw invoiceError
+  const invoiceIds = (invoices ?? []).map((invoice: any) => invoice.id)
+  if (invoiceIds.length === 0) return c.json({ items: [] })
+
+  const soldLines: any[] = []
+  for (let index = 0; index < invoiceIds.length; index += 100) {
+    const { data, error } = await adminClient()
+      .from("billing_invoice_items")
+      .select(
+        "catalog_item_id,name,hsn_sac,unit,quantity,total_paise,item_type",
+      )
+      .in("invoice_id", invoiceIds.slice(index, index + 100))
+      .eq("item_type", "product")
+      .not("catalog_item_id", "is", null)
+    if (error) throw error
+    soldLines.push(...(data ?? []))
+  }
+
+  const { data: catalogItems, error: catalogError } = await adminClient()
+    .from("billing_catalog_items")
+    .select("id,brand,design,size,category,sku,barcode,custom_values")
+    .eq("business_id", businessId)
+  if (catalogError) throw catalogError
+  const catalogById = new Map<string, any>(
+    (catalogItems ?? []).map((item: any) => [item.id, item]),
+  )
+  const aggregated = new Map<string, any>()
+  soldLines.forEach((line: any) => {
+    const key = line.catalog_item_id
+    if (!key || !catalogById.has(key)) return
+    const current = aggregated.get(key) ?? {
+      id: key,
+      catalogItemId: key,
+      name: line.name,
+      hsnSac: line.hsn_sac,
+      unit: line.unit,
+      quantity: 0,
+      totalPaise: 0,
+    }
+    current.quantity += Number(line.quantity)
+    current.totalPaise += Number(line.total_paise)
+    aggregated.set(key, current)
+  })
+  const items = Array.from(aggregated.values())
+    .map((item: any) => {
+      const catalog = catalogById.get(item.catalogItemId)
+      return {
+        ...item,
+        brand: catalog?.brand ?? "",
+        design: catalog?.design ?? "",
+        size: catalog?.size ?? "",
+        category: catalog?.category ?? "",
+        sku: catalog?.sku ?? "",
+        barcode: catalog?.barcode ?? "",
+        customValues:
+          catalog?.custom_values && typeof catalog.custom_values === "object"
+            ? catalog.custom_values
+            : {},
+      }
+    })
+    .sort(
+      (left: any, right: any) =>
+        right.quantity - left.quantity || left.name.localeCompare(right.name),
+    )
+  return c.json({ items })
+})
+
+app.get(`${prefix}/billing/invoices/:id`, async (c) => {
+  const user = await authenticatedUser(c)
+  if (!user) return c.json({ error: "Unauthorized" }, 401)
+  const businessId = Number(c.req.query("businessId"))
+  if (!(await ownedBusiness(businessId, user.id)))
+    return c.json({ error: "You do not own this business." }, 403)
+  const [invoiceResult, itemsResult, paymentsResult, creditsResult] =
+    await Promise.all([
+      adminClient()
+        .from("billing_invoices")
+        .select("*")
+        .eq("id", c.req.param("id"))
+        .eq("business_id", businessId)
+        .single(),
+      adminClient()
+        .from("billing_invoice_items")
+        .select("*")
+        .eq("invoice_id", c.req.param("id"))
+        .order("line_number"),
+      adminClient()
+        .from("billing_payments")
+        .select("*")
+        .eq("invoice_id", c.req.param("id")),
+      adminClient()
+        .from("billing_credit_notes")
+        .select("*")
+        .eq("invoice_id", c.req.param("id"))
+        .order("created_at", { ascending: false }),
+    ])
+  if (invoiceResult.error) return c.json({ error: "Invoice not found." }, 404)
+  return c.json({
+    invoice: invoiceResult.data,
+    items: itemsResult.data ?? [],
+    payments: paymentsResult.data ?? [],
+    creditNotes: creditsResult.data ?? [],
+  })
+})
+
+app.put(`${prefix}/billing/invoices/:id`, async (c) => {
+  const user = await authenticatedUser(c)
+  if (!user) return c.json({ error: "Unauthorized" }, 401)
+  const body = await c.req.json()
+  const businessId = Number(body.businessId)
+  if (!(await ownedBusiness(businessId, user.id)))
+    return c.json({ error: "You do not own this business." }, 403)
+  const [invoiceResult, itemsResult] = await Promise.all([
+    adminClient()
+      .from("billing_invoices")
+      .select("*")
+      .eq("id", c.req.param("id"))
+      .eq("business_id", businessId)
+      .single(),
+    adminClient()
+      .from("billing_invoice_items")
+      .select("*")
+      .eq("invoice_id", c.req.param("id"))
+      .order("line_number"),
+  ])
+  if (invoiceResult.error || !invoiceResult.data)
+    return c.json({ error: "Invoice not found." }, 404)
+  if (itemsResult.error) throw itemsResult.error
+  try {
+    const requested = new Map<string, any>(
+      (Array.isArray(body.lines) ? body.lines : []).map((line: any) => [
+        String(line.id),
+        line,
+      ]),
+    )
+    const rawLines = (itemsResult.data ?? []).map((item: any) => {
+      const edit: any = requested.get(item.id)
+      if (!edit)
+        throw new Error("Every original invoice item must be retained.")
+      return {
+        id: item.id,
+        catalogItemId: item.catalog_item_id,
+        itemType: item.item_type,
+        name: item.name,
+        hsnSac: item.hsn_sac,
+        unit: item.unit,
+        quantity: Number(edit.quantity),
+        unitPricePaise: normalizeMoney(edit.unitPricePaise),
+        priceIncludesTax: item.price_includes_tax,
+        gstRateBps: Number(item.gst_rate_bps),
+        lineDiscountPaise: Number(item.line_discount_paise),
+      }
+    })
+    const invoice = invoiceResult.data
+    const sellerStateCode = String(invoice.seller_snapshot?.stateCode ?? "")
+    const quote = calculateBillingQuote(
+      rawLines,
+      invoice.cart_discount_paise,
+      sellerStateCode,
+      invoice.place_of_supply_code,
+    )
+    const pointsAwarded = invoice.customer_phone
+      ? Math.floor(
+          (quote.totalPaise * Number(invoice.points_per_rupee_snapshot)) / 100,
+        )
+      : 0
+    const rpcLines = quote.lines.map((line: any) => ({
+      id: line.id,
+      line_number: line.lineNumber,
+      quantity: line.quantity,
+      unit_price_paise: line.unitPricePaise,
+      gross_before_discount_paise: line.grossBeforeDiscountPaise,
+      line_discount_paise: line.lineDiscountPaise,
+      allocated_cart_discount_paise: line.allocatedCartDiscountPaise,
+      taxable_paise: line.taxablePaise,
+      cgst_paise: line.cgstPaise,
+      sgst_paise: line.sgstPaise,
+      igst_paise: line.igstPaise,
+      total_paise: line.totalPaise,
+    }))
+    const { data, error } = await adminClient().rpc(
+      "perklyn_update_billing_invoice",
+      {
+        p_business_id: businessId,
+        p_owner_user_id: user.id,
+        p_invoice_id: c.req.param("id"),
+        p_lines: rpcLines,
+        p_totals: {
+          subtotal_paise: quote.subtotalPaise,
+          line_discount_paise: quote.lineDiscountPaise,
+          cart_discount_paise: quote.cartDiscountPaise,
+          taxable_paise: quote.taxablePaise,
+          cgst_paise: quote.cgstPaise,
+          sgst_paise: quote.sgstPaise,
+          igst_paise: quote.igstPaise,
+          total_paise: quote.totalPaise,
+        },
+        p_points_awarded: pointsAwarded,
+      },
+    )
+    if (error) throw error
+    return c.json({ invoice: invoiceSummaryResponse(data), quote })
+  } catch (error: any) {
+    return c.json({ error: error?.message ?? "Unable to update invoice." }, 400)
+  }
+})
+
+app.delete(`${prefix}/billing/invoices/:id`, async (c) => {
+  const user = await authenticatedUser(c)
+  if (!user) return c.json({ error: "Unauthorized" }, 401)
+  const body = await c.req.json()
+  const businessId = Number(body.businessId)
+  if (!(await ownedBusiness(businessId, user.id)))
+    return c.json({ error: "You do not own this business." }, 403)
+  const { data, error } = await adminClient().rpc(
+    "perklyn_delete_billing_invoice",
+    {
+      p_business_id: businessId,
+      p_owner_user_id: user.id,
+      p_invoice_id: c.req.param("id"),
+    },
+  )
+  if (error)
+    return c.json({ error: error.message || "Unable to delete invoice." }, 400)
+  return c.json(data)
+})
+
+app.post(`${prefix}/billing/invoices/:id/credit-notes`, async (c) => {
+  const user = await authenticatedUser(c)
+  if (!user) return c.json({ error: "Unauthorized" }, 401)
+  const body = await c.req.json()
+  const businessId = Number(body.businessId)
+  const business = await ownedBusiness(businessId, user.id)
+  if (!business) return c.json({ error: "You do not own this business." }, 403)
+  const { data: invoice, error: invoiceError } = await adminClient()
+    .from("billing_invoices")
+    .select("*")
+    .eq("id", c.req.param("id"))
+    .eq("business_id", businessId)
+    .single()
+  if (invoiceError || !invoice)
+    return c.json({ error: "Invoice not found." }, 404)
+  const { data: settings } = await adminClient()
+    .from("billing_settings")
+    .select("*")
+    .eq("business_id", businessId)
+    .single()
+  const { data: invoiceItems } = await adminClient()
+    .from("billing_invoice_items")
+    .select("*")
+    .eq("invoice_id", invoice.id)
+  const requested = Array.isArray(body.items) ? body.items : []
+  if (!requested.length)
+    return c.json({ error: "Select at least one item to refund." }, 400)
+  try {
+    const creditItems = requested.map((request: any) => {
+      const original = (invoiceItems ?? []).find(
+        (item: any) => item.id === request.invoiceItemId,
+      )
+      if (!original) throw new Error("A selected invoice item was not found.")
+      const quantity = Number(request.quantity)
+      if (
+        !Number.isFinite(quantity) ||
+        quantity <= 0 ||
+        quantity > Number(original.quantity)
+      )
+        throw new Error(`Invalid refund quantity for ${original.name}.`)
+      const ratio = quantity / Number(original.quantity)
+      const part = (field: string) =>
+        Math.round(Number(original[field]) * ratio)
+      return {
+        id: crypto.randomUUID(),
+        invoice_item_id: original.id,
+        quantity,
+        subtotal_paise: part("gross_before_discount_paise"),
+        taxable_paise: part("taxable_paise"),
+        cgst_paise: part("cgst_paise"),
+        sgst_paise: part("sgst_paise"),
+        igst_paise: part("igst_paise"),
+        total_paise: part("total_paise"),
+      }
+    })
+    const sum = (field: string) =>
+      creditItems.reduce((total: number, item: any) => total + item[field], 0)
+    const totalPaise = sum("total_paise")
+    const pointsRequested = invoice.customer_phone
+      ? Math.floor(
+          (totalPaise * Number(invoice.points_per_rupee_snapshot)) / 100,
+        )
+      : 0
+    const creditId = crypto.randomUUID()
+    const activity = invoice.customer_phone
+      ? {
+          id: `billing-refund:${creditId}`,
+          businessId,
+          customerName: invoice.customer_name,
+          phone: invoice.customer_phone,
+          type: "adjusted",
+          source: "billing",
+          points: pointsRequested,
+          description: `POS refund for ${invoice.invoice_number}`,
+          occurredAt: new Date().toISOString(),
+        }
+      : null
+    const membershipKey = invoice.customer_phone
+      ? `pending:${normalizePhone(invoice.customer_phone)}:${businessId}`
+      : null
+    const { data: result, error } = await adminClient().rpc(
+      "perklyn_create_billing_credit_note",
+      {
+        p_business_id: businessId,
+        p_owner_user_id: user.id,
+        p_credit_note: {
+          id: creditId,
+          invoice_id: invoice.id,
+          idempotency_key: String(body.idempotencyKey || crypto.randomUUID()),
+          fiscal_year: currentIndianFiscalYear(),
+          credit_note_prefix: settings.credit_note_prefix,
+          reason: String(body.reason || "Customer refund").slice(0, 240),
+          subtotal_paise: sum("subtotal_paise"),
+          taxable_paise: sum("taxable_paise"),
+          cgst_paise: sum("cgst_paise"),
+          sgst_paise: sum("sgst_paise"),
+          igst_paise: sum("igst_paise"),
+          total_paise: totalPaise,
+          points_reversal_requested: pointsRequested,
+          refund_mode: validPaymentModes.has(body.refundMode)
+            ? body.refundMode
+            : "cash",
+          refund_reference: String(body.refundReference ?? "").slice(0, 120),
+        },
+        p_items: creditItems,
+        p_membership_key: membershipKey,
+        p_activity: activity,
+      },
+    )
+    if (error) throw error
+    if (
+      invoice.customer_phone &&
+      Number(result.creditNote.points_reversed) > 0
+    ) {
+      const customerLogin = await resolveCustomerUser(invoice.customer_phone)
+      if (customerLogin)
+        background(
+          dispatchNotification(customerLogin.userId, "customer", {
+            type: "points_changed",
+            category: "loyaltyActivity",
+            title: `Refund processed by ${business.name}`,
+            body: `${Number(result.creditNote.points_reversed).toLocaleString()} points reversed for invoice ${invoice.invoice_number}.`,
+            businessId,
+            businessName: business.name,
+            data: {
+              balance: Number(result.balance),
+              delta: -Number(result.creditNote.points_reversed),
+              invoiceId: invoice.id,
+            },
+          }),
+        )
+    }
+    return c.json(
+      { creditNote: result.creditNote, balance: result.balance },
+      result.duplicate ? 200 : 201,
+    )
+  } catch (error: any) {
+    return c.json(
+      { error: error?.message ?? "Unable to create credit note." },
+      400,
+    )
+  }
+})
+
+app.get(`${prefix}/business/:id`, async (c) => {
+  const user = await authenticatedUser(c)
+  if (!user) return c.json({ error: "Unauthorized" }, 401)
+  const business = await kv.get(`business:${c.req.param("id")}`)
+  if (!business)
+    return c.json({ error: "This business QR code is not active." }, 404)
+  return c.json({ business })
+})
+
+app.post(`${prefix}/join-business`, async (c) => {
+  const user = await authenticatedUser(c)
+  if (!user) return c.json({ error: "Unauthorized" }, 401)
+  const profile = await kv.get(`profile:${user.id}`)
+  if (profile?.role !== "customer")
+    return c.json({ error: "Only customers can join businesses." }, 403)
+  const { businessId } = await c.req.json()
+  const business = await kv.get(`business:${businessId}`)
+  if (!business)
+    return c.json({ error: "This business QR code is not active." }, 404)
+  const key = `pending:${normalizePhone(profile.phone)}:${business.id}`
+  const existing = await kv.get(key)
+  if (!existing) {
+    await kv.set(key, {
+      business,
+      ownerId: business._ownerId,
+      customerName: profile.name,
+      phone: profile.phone,
+      points: 0,
+      reward: "Welcome reward",
+      updatedAt: new Date().toISOString(),
+    })
+    if (business._ownerId) {
+      const ownerState = (await kv.get(`state:${business._ownerId}`)) ?? {}
+      const customers = Array.isArray(ownerState.customers)
+        ? ownerState.customers
+        : []
+      if (
+        !customers.some(
+          (customer: any) =>
+            normalizePhone(customer.phone) === normalizePhone(profile.phone),
+        )
+      ) {
+        ownerState.customers = [
+          {
+            id: Date.now(),
+            name: profile.name,
+            phone: profile.phone,
+            points: 0,
+            reward: "Welcome reward",
+            joined: "Just now",
+          },
+          ...customers,
+        ]
+        await kv.set(`state:${business._ownerId}`, ownerState)
+      }
+    }
+    await indexBusinessMember(
+      Number(business.id),
+      { phone: profile.phone, name: profile.name },
+      user.id,
+    )
+    if (business._ownerId) {
+      background(
+        dispatchNotification(String(business._ownerId), "business", {
+          type: "member_joined",
+          category: "businessOperations",
+          title: "New Perklyn member",
+          body: `${profile.name} joined ${business.name}.`,
+          businessId: Number(business.id),
+          businessName: business.name,
+        }),
+      )
     }
   } else {
-    await indexBusinessMember(Number(business.id), { phone: profile.phone, name: profile.name }, user.id);
+    await indexBusinessMember(
+      Number(business.id),
+      { phone: profile.phone, name: profile.name },
+      user.id,
+    )
   }
-  return c.json({ business, membership: existing ?? { points: 0, reward: "Welcome reward" } });
-});
+  return c.json({
+    business,
+    membership: existing ?? { points: 0, reward: "Welcome reward" },
+  })
+})
 
 app.get(`${prefix}/nfc/card`, async (c) => {
-  const user = await authenticatedUser(c);
-  if (!user) return c.json({ error: "Unauthorized" }, 401);
-  const businessId = Number(c.req.query("businessId"));
-  if (!await ownedBusiness(businessId, user.id)) return c.json({ error: "You do not own this business." }, 403);
-  const mapping = await kv.get(`nfc-card-business:${businessId}`);
-  const card = mapping?.cardId ? await kv.get(`nfc-card:${mapping.cardId}`) : null;
-  const provisions = await kv.getByPrefix("nfc-provision:");
-  await Promise.all(provisions.filter((item: any) => new Date(item.expiresAt).getTime() <= Date.now()).map((item: any) => kv.del(`nfc-provision:${item.id}`)));
-  const provision = provisions.find((item: any) =>
-    Number(item.businessId) === businessId &&
-    item.ownerId === user.id &&
-    new Date(item.expiresAt).getTime() > Date.now()
-  );
+  const user = await authenticatedUser(c)
+  if (!user) return c.json({ error: "Unauthorized" }, 401)
+  const businessId = Number(c.req.query("businessId"))
+  if (!(await ownedBusiness(businessId, user.id)))
+    return c.json({ error: "You do not own this business." }, 403)
+  const mapping = await kv.get(`nfc-card-business:${businessId}`)
+  const card = mapping?.cardId
+    ? await kv.get(`nfc-card:${mapping.cardId}`)
+    : null
+  const provisions = await kv.getByPrefix("nfc-provision:")
+  await Promise.all(
+    provisions
+      .filter((item: any) => new Date(item.expiresAt).getTime() <= Date.now())
+      .map((item: any) => kv.del(`nfc-provision:${item.id}`)),
+  )
+  const provision = provisions.find(
+    (item: any) =>
+      Number(item.businessId) === businessId &&
+      item.ownerId === user.id &&
+      new Date(item.expiresAt).getTime() > Date.now(),
+  )
   return c.json({
-    card: card?.status === "active" ? { id: card.id, status: card.status, activatedAt: card.activatedAt } : null,
-    provision: provision ? {
-      id: provision.id,
-      writeUrl: provision.writeUrl,
-      expiresAt: provision.expiresAt,
-      replacing: Boolean(provision.replacingCardId),
-    } : null,
-  });
-});
+    card:
+      card?.status === "active"
+        ? { id: card.id, status: card.status, activatedAt: card.activatedAt }
+        : null,
+    provision: provision
+      ? {
+          id: provision.id,
+          writeUrl: provision.writeUrl,
+          expiresAt: provision.expiresAt,
+          replacing: Boolean(provision.replacingCardId),
+        }
+      : null,
+  })
+})
 
 app.post(`${prefix}/nfc/card/provision`, async (c) => {
-  const user = await authenticatedUser(c);
-  if (!user) return c.json({ error: "Unauthorized" }, 401);
-  const { businessId: rawBusinessId, replaceExisting = false } = await c.req.json();
-  const businessId = Number(rawBusinessId);
-  if (!await ownedBusiness(businessId, user.id)) return c.json({ error: "You do not own this business." }, 403);
-  if (!await checkRateLimit("nfc-provision", `${user.id}:${businessId}`, 5, 60 * 60 * 1000)) return c.json({ error: "Too many card setup attempts. Try again later." }, 429);
-  const mapping = await kv.get(`nfc-card-business:${businessId}`);
-  if (mapping?.cardId && !replaceExisting) return c.json({ error: "This business already has an NFC card." }, 409);
-  const provisions = await kv.getByPrefix("nfc-provision:");
-  const existing = provisions.find((item: any) => Number(item.businessId) === businessId && item.ownerId === user.id && new Date(item.expiresAt).getTime() > Date.now());
-  if (existing) return c.json({ provision: { id: existing.id, writeUrl: existing.writeUrl, expiresAt: existing.expiresAt, replacing: Boolean(existing.replacingCardId) } });
-  const id = crypto.randomUUID();
-  const pendingCardId = crypto.randomUUID();
-  const rawToken = randomToken();
-  const tokenHash = await hashText(rawToken);
-  const createdAt = new Date().toISOString();
-  const expiresAt = new Date(Date.now() + 30 * 60 * 1000).toISOString();
-  const writeUrl = `https://www.perklyn.in/?nfc=${rawToken}`;
+  const user = await authenticatedUser(c)
+  if (!user) return c.json({ error: "Unauthorized" }, 401)
+  const { businessId: rawBusinessId, replaceExisting = false } =
+    await c.req.json()
+  const businessId = Number(rawBusinessId)
+  if (!(await ownedBusiness(businessId, user.id)))
+    return c.json({ error: "You do not own this business." }, 403)
+  if (
+    !(await checkRateLimit(
+      "nfc-provision",
+      `${user.id}:${businessId}`,
+      5,
+      60 * 60 * 1000,
+    ))
+  )
+    return c.json(
+      { error: "Too many card setup attempts. Try again later." },
+      429,
+    )
+  const mapping = await kv.get(`nfc-card-business:${businessId}`)
+  if (mapping?.cardId && !replaceExisting)
+    return c.json({ error: "This business already has an NFC card." }, 409)
+  const provisions = await kv.getByPrefix("nfc-provision:")
+  const existing = provisions.find(
+    (item: any) =>
+      Number(item.businessId) === businessId &&
+      item.ownerId === user.id &&
+      new Date(item.expiresAt).getTime() > Date.now(),
+  )
+  if (existing)
+    return c.json({
+      provision: {
+        id: existing.id,
+        writeUrl: existing.writeUrl,
+        expiresAt: existing.expiresAt,
+        replacing: Boolean(existing.replacingCardId),
+      },
+    })
+  const id = crypto.randomUUID()
+  const pendingCardId = crypto.randomUUID()
+  const rawToken = randomToken()
+  const tokenHash = await hashText(rawToken)
+  const createdAt = new Date().toISOString()
+  const expiresAt = new Date(Date.now() + 30 * 60 * 1000).toISOString()
+  const writeUrl = `https://www.perklyn.in/?nfc=${rawToken}`
   await kv.set(`nfc-provision:${id}`, {
     id,
     businessId,
@@ -778,41 +2742,88 @@ app.post(`${prefix}/nfc/card/provision`, async (c) => {
     replacingCardId: mapping?.cardId,
     createdAt,
     expiresAt,
-  });
-  return c.json({ provision: { id, writeUrl, expiresAt, replacing: Boolean(mapping?.cardId) } }, 201);
-});
+  })
+  return c.json(
+    {
+      provision: {
+        id,
+        writeUrl,
+        expiresAt,
+        replacing: Boolean(mapping?.cardId),
+      },
+    },
+    201,
+  )
+})
 
 app.delete(`${prefix}/nfc/card/provision`, async (c) => {
-  const user = await authenticatedUser(c);
-  if (!user) return c.json({ error: "Unauthorized" }, 401);
-  const { businessId, provisionId } = await c.req.json();
-  if (!await ownedBusiness(Number(businessId), user.id)) return c.json({ error: "You do not own this business." }, 403);
-  const provision = await kv.get(`nfc-provision:${provisionId}`);
-  if (provision?.ownerId === user.id && Number(provision.businessId) === Number(businessId)) await kv.del(`nfc-provision:${provisionId}`);
-  return c.json({ cancelled: true });
-});
+  const user = await authenticatedUser(c)
+  if (!user) return c.json({ error: "Unauthorized" }, 401)
+  const { businessId, provisionId } = await c.req.json()
+  if (!(await ownedBusiness(Number(businessId), user.id)))
+    return c.json({ error: "You do not own this business." }, 403)
+  const provision = await kv.get(`nfc-provision:${provisionId}`)
+  if (
+    provision?.ownerId === user.id &&
+    Number(provision.businessId) === Number(businessId)
+  )
+    await kv.del(`nfc-provision:${provisionId}`)
+  return c.json({ cancelled: true })
+})
 
 app.post(`${prefix}/nfc/card/activate`, async (c) => {
-  const user = await authenticatedUser(c);
-  if (!user) return c.json({ error: "Unauthorized" }, 401);
-  const { businessId: rawBusinessId, provisionId } = await c.req.json();
-  const businessId = Number(rawBusinessId);
-  if (!await ownedBusiness(businessId, user.id)) return c.json({ error: "You do not own this business." }, 403);
-  if (!await checkRateLimit("nfc-activate", `${user.id}:${businessId}`, 10, 60 * 60 * 1000)) return c.json({ error: "Too many activation attempts. Try again later." }, 429);
-  const provision = await kv.get(`nfc-provision:${provisionId}`);
-  if (!provision || provision.ownerId !== user.id || Number(provision.businessId) !== businessId) return c.json({ error: "Card setup was not found." }, 404);
+  const user = await authenticatedUser(c)
+  if (!user) return c.json({ error: "Unauthorized" }, 401)
+  const { businessId: rawBusinessId, provisionId } = await c.req.json()
+  const businessId = Number(rawBusinessId)
+  if (!(await ownedBusiness(businessId, user.id)))
+    return c.json({ error: "You do not own this business." }, 403)
+  if (
+    !(await checkRateLimit(
+      "nfc-activate",
+      `${user.id}:${businessId}`,
+      10,
+      60 * 60 * 1000,
+    ))
+  )
+    return c.json(
+      { error: "Too many activation attempts. Try again later." },
+      429,
+    )
+  const provision = await kv.get(`nfc-provision:${provisionId}`)
+  if (
+    !provision ||
+    provision.ownerId !== user.id ||
+    Number(provision.businessId) !== businessId
+  )
+    return c.json({ error: "Card setup was not found." }, 404)
   if (new Date(provision.expiresAt).getTime() <= Date.now()) {
-    await kv.del(`nfc-provision:${provisionId}`);
-    return c.json({ error: "This card setup expired. Start again." }, 410);
+    await kv.del(`nfc-provision:${provisionId}`)
+    return c.json({ error: "This card setup expired. Start again." }, 410)
   }
-  const currentMapping = await kv.get(`nfc-card-business:${businessId}`);
-  if (currentMapping?.cardId && currentMapping.cardId !== provision.replacingCardId) {
-    return c.json({ error: "Another NFC card was activated for this business. Start replacement setup to change it." }, 409);
+  const currentMapping = await kv.get(`nfc-card-business:${businessId}`)
+  if (
+    currentMapping?.cardId &&
+    currentMapping.cardId !== provision.replacingCardId
+  ) {
+    return c.json(
+      {
+        error:
+          "Another NFC card was activated for this business. Start replacement setup to change it.",
+      },
+      409,
+    )
   }
-  if (provision.replacingCardId && currentMapping?.cardId !== provision.replacingCardId) {
-    return c.json({ error: "The active NFC card changed during setup. Start again." }, 409);
+  if (
+    provision.replacingCardId &&
+    currentMapping?.cardId !== provision.replacingCardId
+  ) {
+    return c.json(
+      { error: "The active NFC card changed during setup. Start again." },
+      409,
+    )
   }
-  const activatedAt = new Date().toISOString();
+  const activatedAt = new Date().toISOString()
   const card = {
     id: provision.pendingCardId,
     businessId,
@@ -821,123 +2832,243 @@ app.post(`${prefix}/nfc/card/activate`, async (c) => {
     status: "active",
     createdAt: provision.createdAt,
     activatedAt,
-  };
+  }
   await kv.mset(
-    [`nfc-card:${card.id}`, `nfc-card-token:${card.tokenHash}`, `nfc-active:${card.id}`],
-    [card, { cardId: card.id, businessId, ownerId: user.id }, { cardId: card.id, businessId, ownerId: user.id, status: "active", updatedAt: activatedAt }],
-  );
+    [
+      `nfc-card:${card.id}`,
+      `nfc-card-token:${card.tokenHash}`,
+      `nfc-active:${card.id}`,
+    ],
+    [
+      card,
+      { cardId: card.id, businessId, ownerId: user.id },
+      {
+        cardId: card.id,
+        businessId,
+        ownerId: user.id,
+        status: "active",
+        updatedAt: activatedAt,
+      },
+    ],
+  )
   if (provision.replacingCardId) {
-    const oldCard = await kv.get(`nfc-card:${provision.replacingCardId}`);
-    const oldActive = await kv.get(`nfc-active:${provision.replacingCardId}`);
+    const oldCard = await kv.get(`nfc-card:${provision.replacingCardId}`)
+    const oldActive = await kv.get(`nfc-active:${provision.replacingCardId}`)
     if (oldActive?.currentIssueKey) {
       await nfcRpc("perklyn_cancel_nfc_issue", {
         p_active_key: `nfc-active:${provision.replacingCardId}`,
         p_issue_key: oldActive.currentIssueKey,
         p_owner_id: user.id,
-      });
+      })
     }
     if (oldCard) {
-      await kv.set(`nfc-card:${oldCard.id}`, { ...oldCard, status: "disabled", disabledAt: activatedAt, replacedByCardId: card.id });
-      await kv.del(`nfc-card-token:${oldCard.tokenHash}`);
+      await kv.set(`nfc-card:${oldCard.id}`, {
+        ...oldCard,
+        status: "disabled",
+        disabledAt: activatedAt,
+        replacedByCardId: card.id,
+      })
+      await kv.del(`nfc-card-token:${oldCard.tokenHash}`)
     }
   }
-  await kv.set(`nfc-card-business:${businessId}`, { businessId, cardId: card.id, ownerId: user.id, status: "active", activatedAt });
-  await kv.del(`nfc-provision:${provisionId}`);
-  return c.json({ card: { id: card.id, status: card.status, activatedAt } });
-});
+  await kv.set(`nfc-card-business:${businessId}`, {
+    businessId,
+    cardId: card.id,
+    ownerId: user.id,
+    status: "active",
+    activatedAt,
+  })
+  await kv.del(`nfc-provision:${provisionId}`)
+  return c.json({ card: { id: card.id, status: card.status, activatedAt } })
+})
 
 app.post(`${prefix}/nfc/issues`, async (c) => {
-  const user = await authenticatedUser(c);
-  if (!user) return c.json({ error: "Unauthorized" }, 401);
-  const body = await c.req.json();
-  const businessId = Number(body.businessId);
-  const amount = Number(body.amount);
-  const reason = String(body.reason ?? "").trim();
-  if (!await ownedBusiness(businessId, user.id)) return c.json({ error: "You do not own this business." }, 403);
-  if (!Number.isInteger(amount) || amount < 1 || amount > 10_000) return c.json({ error: "Enter between 1 and 10,000 points." }, 400);
-  if (reason.length > 100 || /[\u0000-\u001f\u007f]/.test(reason)) return c.json({ error: "Keep the reason under 100 characters." }, 400);
-  if (!await checkRateLimit("nfc-issue", `${user.id}:${businessId}`, 30, 60 * 60 * 1000)) return c.json({ error: "This business has reached its hourly NFC issue limit." }, 429);
-  const mapping = await kv.get(`nfc-card-business:${businessId}`);
-  const card = mapping?.cardId ? await kv.get(`nfc-card:${mapping.cardId}`) : null;
-  if (!card || card.status !== "active" || card.ownerId !== user.id) return c.json({ error: "Connect an active NFC card first." }, 400);
-  const id = crypto.randomUUID();
-  const issue = { id, cardId: card.id, businessId, ownerId: user.id, amount, ...(reason ? { reason } : {}) };
+  const user = await authenticatedUser(c)
+  if (!user) return c.json({ error: "Unauthorized" }, 401)
+  const body = await c.req.json()
+  const businessId = Number(body.businessId)
+  const amount = Number(body.amount)
+  const reason = String(body.reason ?? "").trim()
+  if (!(await ownedBusiness(businessId, user.id)))
+    return c.json({ error: "You do not own this business." }, 403)
+  if (!Number.isInteger(amount) || amount < 1 || amount > 10_000)
+    return c.json({ error: "Enter between 1 and 10,000 points." }, 400)
+  if (reason.length > 100 || /[\u0000-\u001f\u007f]/.test(reason))
+    return c.json({ error: "Keep the reason under 100 characters." }, 400)
+  if (
+    !(await checkRateLimit(
+      "nfc-issue",
+      `${user.id}:${businessId}`,
+      30,
+      60 * 60 * 1000,
+    ))
+  )
+    return c.json(
+      { error: "This business has reached its hourly NFC issue limit." },
+      429,
+    )
+  const mapping = await kv.get(`nfc-card-business:${businessId}`)
+  const card = mapping?.cardId
+    ? await kv.get(`nfc-card:${mapping.cardId}`)
+    : null
+  if (!card || card.status !== "active" || card.ownerId !== user.id)
+    return c.json({ error: "Connect an active NFC card first." }, 400)
+  const id = crypto.randomUUID()
+  const issue = {
+    id,
+    cardId: card.id,
+    businessId,
+    ownerId: user.id,
+    amount,
+    ...(reason ? { reason } : {}),
+  }
   const result = await nfcRpc("perklyn_create_nfc_issue", {
     p_active_key: `nfc-active:${card.id}`,
     p_issue_key: `nfc-issue:${id}`,
     p_issue_value: issue,
-  });
-  if (result?.result === "active_issue_exists") return c.json({ error: "An NFC issue is already active.", issue: result.issue, serverNow: new Date().toISOString() }, 409);
-  if (result?.result !== "created") return c.json({ error: "The NFC card is not active." }, 409);
-  return c.json({ issue: result.issue, serverNow: result.serverNow }, 201);
-});
+  })
+  if (result?.result === "active_issue_exists")
+    return c.json(
+      {
+        error: "An NFC issue is already active.",
+        issue: result.issue,
+        serverNow: new Date().toISOString(),
+      },
+      409,
+    )
+  if (result?.result !== "created")
+    return c.json({ error: "The NFC card is not active." }, 409)
+  return c.json({ issue: result.issue, serverNow: result.serverNow }, 201)
+})
 
 app.get(`${prefix}/nfc/issues/current`, async (c) => {
-  const user = await authenticatedUser(c);
-  if (!user) return c.json({ error: "Unauthorized" }, 401);
-  const businessId = Number(c.req.query("businessId"));
-  if (!await ownedBusiness(businessId, user.id)) return c.json({ error: "You do not own this business." }, 403);
-  const mapping = await kv.get(`nfc-card-business:${businessId}`);
-  const card = mapping?.cardId ? await kv.get(`nfc-card:${mapping.cardId}`) : null;
-  const issue = card ? await currentNfcIssue(card) : null;
-  if (issue?.status === "claimed" && !await kv.get(`nfc-reconciled:${issue.id}`)) {
-    const membership = await kv.get(`pending:${normalizePhone(issue.claimedCustomerPhone)}:${businessId}`);
-    if (membership) await reconcileNfcClaim(issue, Number(membership.points ?? 0), Number(membership.nfcPoints ?? 0));
+  const user = await authenticatedUser(c)
+  if (!user) return c.json({ error: "Unauthorized" }, 401)
+  const businessId = Number(c.req.query("businessId"))
+  if (!(await ownedBusiness(businessId, user.id)))
+    return c.json({ error: "You do not own this business." }, 403)
+  const mapping = await kv.get(`nfc-card-business:${businessId}`)
+  const card = mapping?.cardId
+    ? await kv.get(`nfc-card:${mapping.cardId}`)
+    : null
+  const issue = card ? await currentNfcIssue(card) : null
+  if (
+    issue?.status === "claimed" &&
+    !(await kv.get(`nfc-reconciled:${issue.id}`))
+  ) {
+    const membership = await kv.get(
+      `pending:${normalizePhone(issue.claimedCustomerPhone)}:${businessId}`,
+    )
+    if (membership)
+      await reconcileNfcClaim(
+        issue,
+        Number(membership.points ?? 0),
+        Number(membership.nfcPoints ?? 0),
+      )
   }
-  return c.json({ card: card ? { id: card.id, status: card.status, activatedAt: card.activatedAt } : null, issue, serverNow: new Date().toISOString() });
-});
+  return c.json({
+    card: card
+      ? { id: card.id, status: card.status, activatedAt: card.activatedAt }
+      : null,
+    issue,
+    serverNow: new Date().toISOString(),
+  })
+})
 
 app.post(`${prefix}/nfc/issues/:id/cancel`, async (c) => {
-  const user = await authenticatedUser(c);
-  if (!user) return c.json({ error: "Unauthorized" }, 401);
-  const issue = await kv.get(`nfc-issue:${c.req.param("id")}`);
-  if (!issue || !await ownedBusiness(Number(issue.businessId), user.id) || issue.ownerId !== user.id) return c.json({ error: "NFC issue not found." }, 404);
+  const user = await authenticatedUser(c)
+  if (!user) return c.json({ error: "Unauthorized" }, 401)
+  const issue = await kv.get(`nfc-issue:${c.req.param("id")}`)
+  if (
+    !issue ||
+    !(await ownedBusiness(Number(issue.businessId), user.id)) ||
+    issue.ownerId !== user.id
+  )
+    return c.json({ error: "NFC issue not found." }, 404)
   const result = await nfcRpc("perklyn_cancel_nfc_issue", {
     p_active_key: `nfc-active:${issue.cardId}`,
     p_issue_key: `nfc-issue:${issue.id}`,
     p_owner_id: user.id,
-  });
-  if (result?.result !== "cancelled") return c.json({ error: `This issue is already ${result?.result ?? "closed"}.`, issue: result?.issue }, 409);
-  return c.json({ issue: result.issue, serverNow: result.serverNow });
-});
+  })
+  if (result?.result !== "cancelled")
+    return c.json(
+      {
+        error: `This issue is already ${result?.result ?? "closed"}.`,
+        issue: result?.issue,
+      },
+      409,
+    )
+  return c.json({ issue: result.issue, serverNow: result.serverNow })
+})
 
 app.post(`${prefix}/nfc/claim-preview`, async (c) => {
-  const { token: rawToken = "" } = await c.req.json();
-  const token = String(rawToken);
-  if (!validNfcToken(token)) return c.json({ status: "invalid_card", serverNow: new Date().toISOString() });
-  const tokenHash = await hashText(token);
-  if (!await checkRateLimit("nfc-preview", tokenHash, 120, 15 * 60 * 1000)) return c.json({ error: "Too many card checks. Try again shortly." }, 429);
-  const lookup = await kv.get(`nfc-card-token:${tokenHash}`);
-  const card = lookup?.cardId ? await kv.get(`nfc-card:${lookup.cardId}`) : null;
-  if (!card || card.status !== "active") return c.json({ status: "invalid_card", serverNow: new Date().toISOString() });
-  const business = await kv.get(`business:${card.businessId}`);
-  const issue = await currentNfcIssue(card);
-  const status = !issue ? "no_active_issue" : issue.status === "pending" ? "ready" : issue.status;
+  const { token: rawToken = "" } = await c.req.json()
+  const token = String(rawToken)
+  if (!validNfcToken(token))
+    return c.json({
+      status: "invalid_card",
+      serverNow: new Date().toISOString(),
+    })
+  const tokenHash = await hashText(token)
+  if (!(await checkRateLimit("nfc-preview", tokenHash, 120, 15 * 60 * 1000)))
+    return c.json({ error: "Too many card checks. Try again shortly." }, 429)
+  const lookup = await kv.get(`nfc-card-token:${tokenHash}`)
+  const card = lookup?.cardId ? await kv.get(`nfc-card:${lookup.cardId}`) : null
+  if (!card || card.status !== "active")
+    return c.json({
+      status: "invalid_card",
+      serverNow: new Date().toISOString(),
+    })
+  const business = await kv.get(`business:${card.businessId}`)
+  const issue = await currentNfcIssue(card)
+  const status = !issue
+    ? "no_active_issue"
+    : issue.status === "pending"
+      ? "ready"
+      : issue.status
   return c.json({
     status,
     businessName: business?.name ?? "Perklyn business",
-    ...(issue ? { amount: issue.amount, issueId: issue.id, expiresAt: issue.expiresAt } : {}),
+    ...(issue
+      ? { amount: issue.amount, issueId: issue.id, expiresAt: issue.expiresAt }
+      : {}),
     serverNow: new Date().toISOString(),
-  });
-});
+  })
+})
 
 app.post(`${prefix}/nfc/claim`, async (c) => {
-  const user = await authenticatedUser(c);
-  if (!user) return c.json({ error: "Sign in with a customer account to claim these points." }, 401);
-  const profile = await kv.get(`profile:${user.id}`) ?? user.user_metadata ?? {};
-  if (profile.role !== "customer") return c.json({ error: "A customer account is required to claim NFC points." }, 403);
-  const { token: rawToken = "" } = await c.req.json();
-  const token = String(rawToken);
-  if (!validNfcToken(token)) return c.json({ error: "This NFC card is not valid." }, 400);
-  const tokenHash = await hashText(token);
-  if (!await checkRateLimit("nfc-claim-user", user.id, 10, 5 * 60 * 1000) || !await checkRateLimit("nfc-claim-token", tokenHash, 20, 5 * 60 * 1000)) return c.json({ error: "Too many claim attempts. Try again shortly." }, 429);
-  const lookup = await kv.get(`nfc-card-token:${tokenHash}`);
-  const card = lookup?.cardId ? await kv.get(`nfc-card:${lookup.cardId}`) : null;
-  const active = card ? await kv.get(`nfc-active:${card.id}`) : null;
-  if (!card || card.status !== "active" || !active?.currentIssueKey) return c.json({ error: "No points are ready on this card." }, 409);
-  const business = await kv.get(`business:${card.businessId}`);
-  if (!business || business._ownerId !== card.ownerId) return c.json({ error: "This NFC card is no longer connected." }, 409);
-  const membershipKey = `pending:${normalizePhone(profile.phone)}:${card.businessId}`;
+  const user = await authenticatedUser(c)
+  if (!user)
+    return c.json(
+      { error: "Sign in with a customer account to claim these points." },
+      401,
+    )
+  const profile =
+    (await kv.get(`profile:${user.id}`)) ?? user.user_metadata ?? {}
+  if (profile.role !== "customer")
+    return c.json(
+      { error: "A customer account is required to claim NFC points." },
+      403,
+    )
+  const { token: rawToken = "" } = await c.req.json()
+  const token = String(rawToken)
+  if (!validNfcToken(token))
+    return c.json({ error: "This NFC card is not valid." }, 400)
+  const tokenHash = await hashText(token)
+  if (
+    !(await checkRateLimit("nfc-claim-user", user.id, 10, 5 * 60 * 1000)) ||
+    !(await checkRateLimit("nfc-claim-token", tokenHash, 20, 5 * 60 * 1000))
+  )
+    return c.json({ error: "Too many claim attempts. Try again shortly." }, 429)
+  const lookup = await kv.get(`nfc-card-token:${tokenHash}`)
+  const card = lookup?.cardId ? await kv.get(`nfc-card:${lookup.cardId}`) : null
+  const active = card ? await kv.get(`nfc-active:${card.id}`) : null
+  if (!card || card.status !== "active" || !active?.currentIssueKey)
+    return c.json({ error: "No points are ready on this card." }, 409)
+  const business = await kv.get(`business:${card.businessId}`)
+  if (!business || business._ownerId !== card.ownerId)
+    return c.json({ error: "This NFC card is no longer connected." }, 409)
+  const membershipKey = `pending:${normalizePhone(profile.phone)}:${card.businessId}`
   const seed = {
     business,
     ownerId: card.ownerId,
@@ -946,100 +3077,167 @@ app.post(`${prefix}/nfc/claim`, async (c) => {
     points: 0,
     nfcPoints: 0,
     reward: "Welcome reward",
-  };
+  }
   const result = await nfcRpc("perklyn_claim_nfc_issue", {
     p_active_key: `nfc-active:${card.id}`,
     p_issue_key: active.currentIssueKey,
     p_membership_key: membershipKey,
     p_membership_seed: seed,
     p_claimant_user_id: user.id,
-  });
-  if (result?.result !== "claimed") return c.json({ error: result?.result === "expired" ? "This point issue has expired." : result?.result === "claimed" ? "These points were already claimed." : "These points are no longer available.", status: result?.result }, 409);
-  await reconcileNfcClaim(result.issue, Number(result.balance), Number(result.nfcPoints));
-  if (!await kv.get(`nfc-notified:${result.issue.id}`)) {
-    await kv.set(`nfc-notified:${result.issue.id}`, { createdAt: new Date().toISOString() });
-    background(Promise.all([
-      dispatchNotification(user.id, "customer", {
-        type: "points_changed",
-        category: "loyaltyActivity",
-        title: `NFC points added at ${business.name}`,
-        body: `${result.issue.amount.toLocaleString()} points added. New balance: ${Number(result.balance).toLocaleString()} points.`,
-        businessId: Number(card.businessId),
-        businessName: business.name,
-        data: { balance: Number(result.balance), delta: Number(result.issue.amount), source: "nfc" },
-      }),
-      dispatchNotification(String(card.ownerId), "business", {
-        type: "nfc_points_claimed",
-        category: "businessOperations",
-        title: "NFC points claimed",
-        body: `${profile.name} claimed ${Number(result.issue.amount).toLocaleString()} NFC points.`,
-        businessId: Number(card.businessId),
-        businessName: business.name,
-      }),
-    ]));
+  })
+  if (result?.result !== "claimed")
+    return c.json(
+      {
+        error:
+          result?.result === "expired"
+            ? "This point issue has expired."
+            : result?.result === "claimed"
+              ? "These points were already claimed."
+              : "These points are no longer available.",
+        status: result?.result,
+      },
+      409,
+    )
+  await reconcileNfcClaim(
+    result.issue,
+    Number(result.balance),
+    Number(result.nfcPoints),
+  )
+  if (!(await kv.get(`nfc-notified:${result.issue.id}`))) {
+    await kv.set(`nfc-notified:${result.issue.id}`, {
+      createdAt: new Date().toISOString(),
+    })
+    background(
+      Promise.all([
+        dispatchNotification(user.id, "customer", {
+          type: "points_changed",
+          category: "loyaltyActivity",
+          title: `NFC points added at ${business.name}`,
+          body: `${result.issue.amount.toLocaleString()} points added. New balance: ${Number(result.balance).toLocaleString()} points.`,
+          businessId: Number(card.businessId),
+          businessName: business.name,
+          data: {
+            balance: Number(result.balance),
+            delta: Number(result.issue.amount),
+            source: "nfc",
+          },
+        }),
+        dispatchNotification(String(card.ownerId), "business", {
+          type: "nfc_points_claimed",
+          category: "businessOperations",
+          title: "NFC points claimed",
+          body: `${profile.name} claimed ${Number(result.issue.amount).toLocaleString()} NFC points.`,
+          businessId: Number(card.businessId),
+          businessName: business.name,
+        }),
+      ]),
+    )
   }
-  const { _ownerId, ...businessSummary } = business;
+  const { _ownerId, ...businessSummary } = business
   return c.json({
     business: businessSummary,
     amount: Number(result.issue.amount),
     balance: Number(result.balance),
     nfcPoints: Number(result.nfcPoints),
     membershipCreated: Boolean(result.membershipCreated),
-  });
-});
+  })
+})
 
 app.get(`${prefix}/rfid/cards`, async (c) => {
-  const user = await authenticatedUser(c);
-  if (!user) return c.json({ error: "Unauthorized" }, 401);
-  const businessId = Number(c.req.query("businessId"));
-  if (!await ownedBusiness(businessId, user.id)) return c.json({ error: "You do not own this business." }, 403);
-  const cards = await kv.getByPrefix(`rfid-card:${businessId}:`);
+  const user = await authenticatedUser(c)
+  if (!user) return c.json({ error: "Unauthorized" }, 401)
+  const businessId = Number(c.req.query("businessId"))
+  if (!(await ownedBusiness(businessId, user.id)))
+    return c.json({ error: "You do not own this business." }, 403)
+  const cards = await kv.getByPrefix(`rfid-card:${businessId}:`)
   return c.json({
     cards: cards
       .filter((card: any) => card.ownerId === user.id)
-      .sort((a: any, b: any) => String(b.activatedAt).localeCompare(String(a.activatedAt)))
-      .map(({ identifierHash, phone, _key, ...card }: any) => ({ ...card, maskedPhone: maskPhone(phone ?? "") })),
-  });
-});
+      .sort((a: any, b: any) =>
+        String(b.activatedAt).localeCompare(String(a.activatedAt)),
+      )
+      .map(({ identifierHash, phone, _key, ...card }: any) => ({
+        ...card,
+        maskedPhone: maskPhone(phone ?? ""),
+      })),
+  })
+})
 
 app.get(`${prefix}/rfid/customers`, async (c) => {
-  const user = await authenticatedUser(c);
-  if (!user) return c.json({ error: "Unauthorized" }, 401);
-  const businessId = Number(c.req.query("businessId"));
-  const query = String(c.req.query("query") ?? "").trim().toLowerCase();
-  if (!await ownedBusiness(businessId, user.id)) return c.json({ error: "You do not own this business." }, 403);
-  if (!query) return c.json({ customers: [] });
-  const state = await kv.get(`state:${user.id}`) ?? {};
-  const customers = (state.customers ?? []).filter((customer: any) =>
-    `${customer.id} ${customer.name} ${customer.phone}`.toLowerCase().includes(query)
-  ).slice(0, 20);
-  const verified = [];
+  const user = await authenticatedUser(c)
+  if (!user) return c.json({ error: "Unauthorized" }, 401)
+  const businessId = Number(c.req.query("businessId"))
+  const query = String(c.req.query("query") ?? "")
+    .trim()
+    .toLowerCase()
+  if (!(await ownedBusiness(businessId, user.id)))
+    return c.json({ error: "You do not own this business." }, 403)
+  if (!query) return c.json({ customers: [] })
+  const state = (await kv.get(`state:${user.id}`)) ?? {}
+  const customers = (state.customers ?? [])
+    .filter((customer: any) =>
+      `${customer.id} ${customer.name} ${customer.phone}`
+        .toLowerCase()
+        .includes(query),
+    )
+    .slice(0, 20)
+  const verified = []
   for (const customer of customers) {
-    const membership = await kv.get(`pending:${normalizePhone(customer.phone)}:${businessId}`);
-    if (membership?.ownerId === user.id) verified.push({ ...customer, points: Number(membership.points ?? 0) });
+    const membership = await kv.get(
+      `pending:${normalizePhone(customer.phone)}:${businessId}`,
+    )
+    if (membership?.ownerId === user.id)
+      verified.push({ ...customer, points: Number(membership.points ?? 0) })
   }
-  return c.json({ customers: verified });
-});
+  return c.json({ customers: verified })
+})
 
 app.post(`${prefix}/rfid/cards/activate`, async (c) => {
-  const user = await authenticatedUser(c);
-  if (!user) return c.json({ error: "Unauthorized" }, 401);
-  const body = await c.req.json();
-  const businessId = Number(body.businessId);
-  const identifier = String(body.cardIdentifier ?? "").trim().toUpperCase();
-  const customerId = String(body.customerId ?? "");
-  const replaceCardId = String(body.replaceCardId ?? "");
-  if (!await ownedBusiness(businessId, user.id)) return c.json({ error: "You do not own this business." }, 403);
-  if (!validRfidIdentifier(identifier)) return c.json({ error: "The reader returned an invalid card identifier." }, 400);
-  if (!await checkRateLimit("rfid-activate", `${user.id}:${businessId}`, 40, 60 * 60 * 1000)) return c.json({ error: "Too many card activation attempts." }, 429);
-  const state = await kv.get(`state:${user.id}`) ?? {};
-  const customer = (state.customers ?? []).find((item: any) => String(item.id) === customerId);
-  if (!customer) return c.json({ error: "Select an existing customer from this business." }, 404);
-  const membership = await kv.get(`pending:${normalizePhone(customer.phone)}:${businessId}`);
-  if (!membership || membership.ownerId !== user.id) return c.json({ error: "This customer does not belong to the current business." }, 403);
-  const key = await rfidCardKey(businessId, identifier);
-  const registryKey = await rfidRegistryKey(identifier);
-  const now = new Date().toISOString();
+  const user = await authenticatedUser(c)
+  if (!user) return c.json({ error: "Unauthorized" }, 401)
+  const body = await c.req.json()
+  const businessId = Number(body.businessId)
+  const identifier = String(body.cardIdentifier ?? "")
+    .trim()
+    .toUpperCase()
+  const customerId = String(body.customerId ?? "")
+  const replaceCardId = String(body.replaceCardId ?? "")
+  if (!(await ownedBusiness(businessId, user.id)))
+    return c.json({ error: "You do not own this business." }, 403)
+  if (!validRfidIdentifier(identifier))
+    return c.json(
+      { error: "The reader returned an invalid card identifier." },
+      400,
+    )
+  if (
+    !(await checkRateLimit(
+      "rfid-activate",
+      `${user.id}:${businessId}`,
+      40,
+      60 * 60 * 1000,
+    ))
+  )
+    return c.json({ error: "Too many card activation attempts." }, 429)
+  const state = (await kv.get(`state:${user.id}`)) ?? {}
+  const customer = (state.customers ?? []).find(
+    (item: any) => String(item.id) === customerId,
+  )
+  if (!customer)
+    return c.json(
+      { error: "Select an existing customer from this business." },
+      404,
+    )
+  const membership = await kv.get(
+    `pending:${normalizePhone(customer.phone)}:${businessId}`,
+  )
+  if (!membership || membership.ownerId !== user.id)
+    return c.json(
+      { error: "This customer does not belong to the current business." },
+      403,
+    )
+  const key = await rfidCardKey(businessId, identifier)
+  const registryKey = await rfidRegistryKey(identifier)
+  const now = new Date().toISOString()
   const card = {
     id: crypto.randomUUID(),
     businessId,
@@ -1052,107 +3250,237 @@ app.post(`${prefix}/rfid/cards/activate`, async (c) => {
     status: "active",
     activatedAt: now,
     lastScannedAt: null,
-  };
-  let replacement: any = null;
+  }
+  let replacement: any = null
   if (replaceCardId) {
-    const allCards = await kv.getByPrefix(`rfid-card:${businessId}:`);
-    replacement = allCards.find((item: any) => item.id === replaceCardId && item.ownerId === user.id);
-    if (!replacement || String(replacement.customerId) !== customerId || replacement.status !== "active") {
-      return c.json({ error: "The active replacement card does not match this customer." }, 400);
+    const allCards = await kv.getByPrefix(`rfid-card:${businessId}:`)
+    replacement = allCards.find(
+      (item: any) => item.id === replaceCardId && item.ownerId === user.id,
+    )
+    if (
+      !replacement ||
+      String(replacement.customerId) !== customerId ||
+      replacement.status !== "active"
+    ) {
+      return c.json(
+        { error: "The active replacement card does not match this customer." },
+        400,
+      )
     }
   }
-  const result = await nfcRpc("perklyn_activate_rfid_card", {
-    p_card_key: key,
-    p_registry_key: registryKey,
-    p_card_value: card,
-    p_customer_id: customerId,
-    p_owner_id: user.id,
-    p_business_id: businessId,
-    p_replaced_card_key: replacement ? `rfid-card:${businessId}:${replacement.identifierHash}` : null,
-    p_replaced_registry_key: replacement ? `rfid-identifier:${replacement.identifierHash}` : null,
-  });
-  if (result?.result === "already_linked") {
-    return c.json({
-      error: "This RFID card is already issued to another business or customer. It must be replaced by its current business before it can be issued again.",
-      conflict: {
-        cardId: result.card?.id,
-        customerName: result.card?.customerName,
-        maskedIdentifier: result.card?.maskedIdentifier,
-        status: result.card?.status,
+  let result: any
+  try {
+    result = await nfcRpc("perklyn_activate_rfid_card", {
+      p_card_key: key,
+      p_registry_key: registryKey,
+      p_card_value: card,
+      p_customer_id: customerId,
+      p_owner_id: user.id,
+      p_business_id: businessId,
+      p_replaced_card_key: replacement
+        ? `rfid-card:${businessId}:${replacement.identifierHash}`
+        : null,
+      p_replaced_registry_key: replacement
+        ? `rfid-identifier:${replacement.identifierHash}`
+        : null,
+    })
+  } catch (error: any) {
+    const detail = String(error?.message ?? "")
+    console.log("RFID activation RPC failed", detail)
+    if (
+      detail.includes("perklyn_activate_rfid_card") ||
+      detail.includes("schema cache") ||
+      detail.includes("function")
+    ) {
+      return c.json(
+        {
+          error:
+            "RFID database setup is incomplete. Apply migration 20260312000000_global_rfid_uniqueness.sql in Supabase, then redeploy the Edge Function.",
+        },
+        503,
+      )
+    }
+    return c.json(
+      {
+        error: `Unable to activate this RFID card: ${detail || "database operation failed"}`,
       },
-    }, 409);
+      500,
+    )
   }
-  if (result?.result === "already_active") return c.json({ error: "This card is already active for the selected customer.", card: result.card }, 409);
-  if (result?.result === "invalid_replacement") return c.json({ error: "The card being replaced is no longer active for this customer." }, 409);
-  return c.json({ card: result.card, message: "Loyalty card activated successfully." }, 201);
-});
+  if (result?.result === "already_linked") {
+    return c.json(
+      {
+        error:
+          "This RFID card is already issued to another business or customer. It must be replaced by its current business before it can be issued again.",
+        conflict: {
+          cardId: result.card?.id,
+          customerName: result.card?.customerName,
+          maskedIdentifier: result.card?.maskedIdentifier,
+          status: result.card?.status,
+        },
+      },
+      409,
+    )
+  }
+  if (result?.result === "already_active")
+    return c.json(
+      {
+        error: "This card is already active for the selected customer.",
+        card: result.card,
+      },
+      409,
+    )
+  if (result?.result === "invalid_replacement")
+    return c.json(
+      {
+        error: "The card being replaced is no longer active for this customer.",
+      },
+      409,
+    )
+  return c.json(
+    { card: result.card, message: "Loyalty card activated successfully." },
+    201,
+  )
+})
 
 app.post(`${prefix}/rfid/cards/scan`, async (c) => {
-  const user = await authenticatedUser(c);
-  if (!user) return c.json({ error: "Unauthorized" }, 401);
-  const { businessId: rawBusinessId, cardIdentifier: rawIdentifier } = await c.req.json();
-  const businessId = Number(rawBusinessId);
-  const identifier = String(rawIdentifier ?? "").trim().toUpperCase();
-  const business = await ownedBusiness(businessId, user.id);
-  if (!business) return c.json({ error: "You do not own this business." }, 403);
-  if (!validRfidIdentifier(identifier)) return c.json({ status: "scan_failed", error: "The reader returned an invalid card identifier." }, 400);
-  if (!await checkRateLimit("rfid-scan", `${user.id}:${businessId}`, 240, 60 * 60 * 1000)) return c.json({ error: "Too many card scans. Wait a moment." }, 429);
-  const key = await rfidCardKey(businessId, identifier);
-  const card = await kv.get(key);
-  if (!card || card.ownerId !== user.id) return c.json({ status: "not_registered", error: "This card is not registered to this business." }, 404);
-  if (card.status !== "active") return c.json({ status: card.status, error: `This card is ${card.status} and cannot be used.` }, 409);
-  const membership = await kv.get(`pending:${normalizePhone(card.phone)}:${businessId}`);
-  if (!membership || membership.ownerId !== user.id) return c.json({ status: "customer_lookup_failed", error: "The linked customer membership could not be verified." }, 409);
-  const scannedAt = new Date().toISOString();
-  await kv.set(key, { ...card, lastScannedAt: scannedAt });
-  const ownerState = await kv.get(`state:${user.id}`) ?? {};
-  const lastTransaction = (ownerState.activities ?? []).find((activity: any) =>
-    Number(activity.businessId) === businessId && normalizePhone(activity.phone) === normalizePhone(card.phone)
-  );
+  const user = await authenticatedUser(c)
+  if (!user) return c.json({ error: "Unauthorized" }, 401)
+  const { businessId: rawBusinessId, cardIdentifier: rawIdentifier } =
+    await c.req.json()
+  const businessId = Number(rawBusinessId)
+  const identifier = String(rawIdentifier ?? "")
+    .trim()
+    .toUpperCase()
+  const business = await ownedBusiness(businessId, user.id)
+  if (!business) return c.json({ error: "You do not own this business." }, 403)
+  if (!validRfidIdentifier(identifier))
+    return c.json(
+      {
+        status: "scan_failed",
+        error: "The reader returned an invalid card identifier.",
+      },
+      400,
+    )
+  if (
+    !(await checkRateLimit(
+      "rfid-scan",
+      `${user.id}:${businessId}`,
+      240,
+      60 * 60 * 1000,
+    ))
+  )
+    return c.json({ error: "Too many card scans. Wait a moment." }, 429)
+  const key = await rfidCardKey(businessId, identifier)
+  const card = await kv.get(key)
+  if (!card || card.ownerId !== user.id)
+    return c.json(
+      {
+        status: "not_registered",
+        error: "This card is not registered to this business.",
+      },
+      404,
+    )
+  if (card.status !== "active")
+    return c.json(
+      {
+        status: card.status,
+        error: `This card is ${card.status} and cannot be used.`,
+      },
+      409,
+    )
+  const membership = await kv.get(
+    `pending:${normalizePhone(card.phone)}:${businessId}`,
+  )
+  if (!membership || membership.ownerId !== user.id)
+    return c.json(
+      {
+        status: "customer_lookup_failed",
+        error: "The linked customer membership could not be verified.",
+      },
+      409,
+    )
+  const scannedAt = new Date().toISOString()
+  await kv.set(key, { ...card, lastScannedAt: scannedAt })
+  const ownerState = (await kv.get(`state:${user.id}`)) ?? {}
+  const lastTransaction = (ownerState.activities ?? []).find(
+    (activity: any) =>
+      Number(activity.businessId) === businessId &&
+      normalizePhone(activity.phone) === normalizePhone(card.phone),
+  )
   return c.json({
     status: "detected",
-    card: { id: card.id, maskedIdentifier: card.maskedIdentifier, status: card.status, lastScannedAt: scannedAt },
+    card: {
+      id: card.id,
+      maskedIdentifier: card.maskedIdentifier,
+      status: card.status,
+      lastScannedAt: scannedAt,
+    },
     customer: {
       id: card.customerId,
       name: card.customerName,
       maskedPhone: maskPhone(card.phone),
       points: Number(membership.points ?? 0),
     },
-    rewards: (business.rewards ?? []).map((reward: any) => ({ ...reward, available: reward.active !== false })),
+    rewards: (business.rewards ?? []).map((reward: any) => ({
+      ...reward,
+      available: reward.active !== false,
+    })),
     lastTransaction: lastTransaction ?? null,
-  });
-});
+  })
+})
 
 app.post(`${prefix}/rfid/cards/:id/block`, async (c) => {
-  const user = await authenticatedUser(c);
-  if (!user) return c.json({ error: "Unauthorized" }, 401);
-  const { businessId: rawBusinessId } = await c.req.json();
-  const businessId = Number(rawBusinessId);
-  if (!await ownedBusiness(businessId, user.id)) return c.json({ error: "You do not own this business." }, 403);
-  const cards = await kv.getByPrefix(`rfid-card:${businessId}:`);
-  const card = cards.find((item: any) => item.id === c.req.param("id") && item.ownerId === user.id);
-  if (!card) return c.json({ error: "RFID card not found." }, 404);
-  if (card.status !== "active") return c.json({ error: `This card is already ${card.status}.` }, 409);
-  const blocked = { ...card, status: "blocked", blockedAt: new Date().toISOString() };
-  await kv.set(`rfid-card:${businessId}:${card.identifierHash}`, blocked);
-  return c.json({ card: blocked });
-});
+  const user = await authenticatedUser(c)
+  if (!user) return c.json({ error: "Unauthorized" }, 401)
+  const { businessId: rawBusinessId } = await c.req.json()
+  const businessId = Number(rawBusinessId)
+  if (!(await ownedBusiness(businessId, user.id)))
+    return c.json({ error: "You do not own this business." }, 403)
+  const cards = await kv.getByPrefix(`rfid-card:${businessId}:`)
+  const card = cards.find(
+    (item: any) => item.id === c.req.param("id") && item.ownerId === user.id,
+  )
+  if (!card) return c.json({ error: "RFID card not found." }, 404)
+  if (card.status !== "active")
+    return c.json({ error: `This card is already ${card.status}.` }, 409)
+  const blocked = {
+    ...card,
+    status: "blocked",
+    blockedAt: new Date().toISOString(),
+  }
+  await kv.set(`rfid-card:${businessId}:${card.identifierHash}`, blocked)
+  return c.json({ card: blocked })
+})
 
 app.post(`${prefix}/rfid/transactions/add`, async (c) => {
-  const user = await authenticatedUser(c);
-  if (!user) return c.json({ error: "Unauthorized" }, 401);
-  const body = await c.req.json();
-  const businessId = Number(body.businessId);
-  const points = Number(body.points);
-  const operationId = String(body.operationId ?? "");
-  const business = await ownedBusiness(businessId, user.id);
-  if (!business) return c.json({ error: "You do not own this business." }, 403);
-  if (!await checkRateLimit("rfid-transaction", `${user.id}:${businessId}`, 120, 60 * 1000)) return c.json({ error: "Too many RFID transactions. Wait a moment." }, 429);
-  if (!Number.isInteger(points) || points < 1 || points > 1_000_000) return c.json({ error: "Enter a valid positive number of points." }, 400);
-  if (!/^[0-9a-f-]{36}$/i.test(operationId)) return c.json({ error: "Invalid transaction request." }, 400);
-  const cards = await kv.getByPrefix(`rfid-card:${businessId}:`);
-  const card = cards.find((item: any) => item.id === body.cardId && item.ownerId === user.id);
-  if (!card || card.status !== "active") return c.json({ error: "Scan an active card before adding points." }, 409);
+  const user = await authenticatedUser(c)
+  if (!user) return c.json({ error: "Unauthorized" }, 401)
+  const body = await c.req.json()
+  const businessId = Number(body.businessId)
+  const points = Number(body.points)
+  const operationId = String(body.operationId ?? "")
+  const business = await ownedBusiness(businessId, user.id)
+  if (!business) return c.json({ error: "You do not own this business." }, 403)
+  if (
+    !(await checkRateLimit(
+      "rfid-transaction",
+      `${user.id}:${businessId}`,
+      120,
+      60 * 1000,
+    ))
+  )
+    return c.json({ error: "Too many RFID transactions. Wait a moment." }, 429)
+  if (!Number.isInteger(points) || points < 1 || points > 1_000_000)
+    return c.json({ error: "Enter a valid positive number of points." }, 400)
+  if (!/^[0-9a-f-]{36}$/i.test(operationId))
+    return c.json({ error: "Invalid transaction request." }, 400)
+  const cards = await kv.getByPrefix(`rfid-card:${businessId}:`)
+  const card = cards.find(
+    (item: any) => item.id === body.cardId && item.ownerId === user.id,
+  )
+  if (!card || card.status !== "active")
+    return c.json({ error: "Scan an active card before adding points." }, 409)
   const transaction = {
     id: `rfid:${operationId}`,
     businessId,
@@ -1163,47 +3491,84 @@ app.post(`${prefix}/rfid/transactions/add`, async (c) => {
     points,
     delta: points,
     purchaseAmount: body.purchaseAmount ? Number(body.purchaseAmount) : null,
-    description: String(body.note ?? "").trim().slice(0, 180) || "Points added by RFID card",
+    description:
+      String(body.note ?? "")
+        .trim()
+        .slice(0, 180) || "Points added by RFID card",
     cardId: card.id,
-  };
+  }
   const result = await nfcRpc("perklyn_rfid_points_transaction", {
     p_membership_key: `pending:${normalizePhone(card.phone)}:${businessId}`,
     p_transaction_key: `rfid-transaction:${businessId}:${operationId}`,
     p_delta: points,
     p_transaction_value: transaction,
-  });
-  if (!["completed", "duplicate"].includes(result?.result)) return c.json({ error: "Unable to update this customer balance." }, 409);
-  await reconcileRfidTransaction(card, result.transaction, Number(result.balance));
-  const customerLogin = await resolveCustomerUser(card.phone);
-  if (customerLogin && result.result === "completed") background(dispatchNotification(customerLogin.userId, "customer", {
-    type: "points_changed",
-    category: "loyaltyActivity",
-    title: `Points added at ${business.name}`,
-    body: `${points.toLocaleString()} points added by loyalty card. New balance: ${Number(result.balance).toLocaleString()} points.`,
-    businessId,
-    businessName: business.name,
-    data: { balance: Number(result.balance), delta: points, source: "rfid" },
-  }));
-  return c.json({ balance: Number(result.balance), transaction: result.transaction });
-});
+  })
+  if (!["completed", "duplicate"].includes(result?.result))
+    return c.json({ error: "Unable to update this customer balance." }, 409)
+  await reconcileRfidTransaction(
+    card,
+    result.transaction,
+    Number(result.balance),
+  )
+  const customerLogin = await resolveCustomerUser(card.phone)
+  if (customerLogin && result.result === "completed")
+    background(
+      dispatchNotification(customerLogin.userId, "customer", {
+        type: "points_changed",
+        category: "loyaltyActivity",
+        title: `Points added at ${business.name}`,
+        body: `${points.toLocaleString()} points added by loyalty card. New balance: ${Number(result.balance).toLocaleString()} points.`,
+        businessId,
+        businessName: business.name,
+        data: {
+          balance: Number(result.balance),
+          delta: points,
+          source: "rfid",
+        },
+      }),
+    )
+  return c.json({
+    balance: Number(result.balance),
+    transaction: result.transaction,
+  })
+})
 
 app.post(`${prefix}/rfid/transactions/redeem`, async (c) => {
-  const user = await authenticatedUser(c);
-  if (!user) return c.json({ error: "Unauthorized" }, 401);
-  const body = await c.req.json();
-  const businessId = Number(body.businessId);
-  const operationId = String(body.operationId ?? "");
-  const business = await ownedBusiness(businessId, user.id);
-  if (!business) return c.json({ error: "You do not own this business." }, 403);
-  if (!await checkRateLimit("rfid-transaction", `${user.id}:${businessId}`, 120, 60 * 1000)) return c.json({ error: "Too many RFID transactions. Wait a moment." }, 429);
-  if (!/^[0-9a-f-]{36}$/i.test(operationId)) return c.json({ error: "Invalid redemption request." }, 400);
-  const reward = (business.rewards ?? []).find((item: any) => String(item.id) === String(body.rewardId));
-  if (!reward || reward.active === false) return c.json({ error: "This reward is inactive or unavailable." }, 409);
-  const cost = Number(reward.points);
-  if (!Number.isInteger(cost) || cost < 1) return c.json({ error: "This reward has an invalid point cost." }, 409);
-  const cards = await kv.getByPrefix(`rfid-card:${businessId}:`);
-  const card = cards.find((item: any) => item.id === body.cardId && item.ownerId === user.id);
-  if (!card || card.status !== "active") return c.json({ error: "Scan an active card before redeeming a reward." }, 409);
+  const user = await authenticatedUser(c)
+  if (!user) return c.json({ error: "Unauthorized" }, 401)
+  const body = await c.req.json()
+  const businessId = Number(body.businessId)
+  const operationId = String(body.operationId ?? "")
+  const business = await ownedBusiness(businessId, user.id)
+  if (!business) return c.json({ error: "You do not own this business." }, 403)
+  if (
+    !(await checkRateLimit(
+      "rfid-transaction",
+      `${user.id}:${businessId}`,
+      120,
+      60 * 1000,
+    ))
+  )
+    return c.json({ error: "Too many RFID transactions. Wait a moment." }, 429)
+  if (!/^[0-9a-f-]{36}$/i.test(operationId))
+    return c.json({ error: "Invalid redemption request." }, 400)
+  const reward = (business.rewards ?? []).find(
+    (item: any) => String(item.id) === String(body.rewardId),
+  )
+  if (!reward || reward.active === false)
+    return c.json({ error: "This reward is inactive or unavailable." }, 409)
+  const cost = Number(reward.points)
+  if (!Number.isInteger(cost) || cost < 1)
+    return c.json({ error: "This reward has an invalid point cost." }, 409)
+  const cards = await kv.getByPrefix(`rfid-card:${businessId}:`)
+  const card = cards.find(
+    (item: any) => item.id === body.cardId && item.ownerId === user.id,
+  )
+  if (!card || card.status !== "active")
+    return c.json(
+      { error: "Scan an active card before redeeming a reward." },
+      409,
+    )
   const transaction = {
     id: `rfid:${operationId}`,
     businessId,
@@ -1217,121 +3582,196 @@ app.post(`${prefix}/rfid/transactions/redeem`, async (c) => {
     rewardTitle: reward.title,
     description: `RFID reward redeemed: ${reward.title}`,
     cardId: card.id,
-  };
+  }
   const result = await nfcRpc("perklyn_rfid_points_transaction", {
     p_membership_key: `pending:${normalizePhone(card.phone)}:${businessId}`,
     p_transaction_key: `rfid-transaction:${businessId}:${operationId}`,
     p_delta: -cost,
     p_transaction_value: transaction,
-  });
-  if (result?.result === "insufficient_points") return c.json({ error: `This customer needs ${cost - Number(result.balance)} more points.` }, 409);
-  if (!["completed", "duplicate"].includes(result?.result)) return c.json({ error: "Unable to redeem this reward." }, 409);
-  await reconcileRfidTransaction(card, result.transaction, Number(result.balance));
-  return c.json({ balance: Number(result.balance), transaction: result.transaction, reward: { id: reward.id, title: reward.title, points: cost } });
-});
+  })
+  if (result?.result === "insufficient_points")
+    return c.json(
+      {
+        error: `This customer needs ${cost - Number(result.balance)} more points.`,
+      },
+      409,
+    )
+  if (!["completed", "duplicate"].includes(result?.result))
+    return c.json({ error: "Unable to redeem this reward." }, 409)
+  await reconcileRfidTransaction(
+    card,
+    result.transaction,
+    Number(result.balance),
+  )
+  return c.json({
+    balance: Number(result.balance),
+    transaction: result.transaction,
+    reward: { id: reward.id, title: reward.title, points: cost },
+  })
+})
 
 app.get(`${prefix}/claim-capabilities`, async (c) => {
-  const user = await authenticatedUser(c);
-  if (!user) return c.json({ error: "Unauthorized" }, 401);
-  return c.json({ verificationCodes: true, expiresInHours: 24 });
-});
+  const user = await authenticatedUser(c)
+  if (!user) return c.json({ error: "Unauthorized" }, 401)
+  return c.json({ verificationCodes: true, expiresInHours: 24 })
+})
 
 app.post(`${prefix}/claim-reward`, async (c) => {
-  const user = await authenticatedUser(c);
-  if (!user) return c.json({ error: "Unauthorized" }, 401);
-  const profile = await kv.get(`profile:${user.id}`);
-  if (profile?.role !== "customer") return c.json({ error: "Only customers can claim rewards." }, 403);
-  if (!await checkRateLimit("claim", user.id, 20, 60 * 1000)) return c.json({ error: "Too many claim attempts. Wait a moment and try again." }, 429);
-  const { businessId, rewardId } = await c.req.json();
-  const membership = await kv.get(`pending:${normalizePhone(profile.phone)}:${businessId}`);
-  if (!membership) return c.json({ error: "You are not connected to this business." }, 404);
-  const business = await kv.get(`business:${businessId}`);
-  const reward = business?.rewards?.find((item: any) => String(item.id) === String(rewardId));
-  if (!reward) return c.json({ error: "This reward is no longer available." }, 404);
-  const title = String(reward.title);
-  const points = Number(reward.points);
-  if (!Number.isFinite(points) || points <= 0 || membership.points < points) return c.json({ error: "You do not have enough points." }, 400);
-  membership.points -= points;
-  membership.updatedAt = new Date().toISOString();
-  await kv.set(`pending:${normalizePhone(profile.phone)}:${businessId}`, membership);
-  const claimCode = crypto.randomUUID().replace(/-/g, "").slice(0, 8).toUpperCase();
-  const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
-  const claim = { code: claimCode, businessId, ownerId: membership.ownerId, customerName: profile.name, phone: profile.phone, rewardId, title, points, status: "pending", createdAt: new Date().toISOString(), expiresAt };
-  await kv.set(`claim:${claimCode}`, claim);
-  if (membership.ownerId) {
-    const ownerState = await kv.get(`state:${membership.ownerId}`) ?? {};
-    ownerState.customers = (ownerState.customers ?? []).map((customer: any) => normalizePhone(customer.phone) === normalizePhone(profile.phone) ? { ...customer, points: membership.points } : customer);
-    ownerState.activities = [{
-      id: Date.now(),
-      businessId,
-      customerName: profile.name,
-      phone: profile.phone,
-      type: "claimed",
-      points,
-      description: `Reward claimed: ${title}`,
-      occurredAt: new Date().toISOString(),
-    }, ...(ownerState.activities ?? [])];
-    await kv.set(`state:${membership.ownerId}`, ownerState);
-    background(dispatchNotification(String(membership.ownerId), "business", {
-      type: "reward_claimed",
-      category: "businessOperations",
-      title: "Reward claim ready",
-      body: `${profile.name} claimed ${title}. Open Perklyn to verify it in store.`,
-      businessId: Number(businessId),
-      businessName: business?.name,
-      claimCode,
-      data: { rewardTitle: title, points },
-    }));
+  const user = await authenticatedUser(c)
+  if (!user) return c.json({ error: "Unauthorized" }, 401)
+  const profile = await kv.get(`profile:${user.id}`)
+  if (profile?.role !== "customer")
+    return c.json({ error: "Only customers can claim rewards." }, 403)
+  if (!(await checkRateLimit("claim", user.id, 20, 60 * 1000)))
+    return c.json(
+      { error: "Too many claim attempts. Wait a moment and try again." },
+      429,
+    )
+  const { businessId, rewardId } = await c.req.json()
+  const membership = await kv.get(
+    `pending:${normalizePhone(profile.phone)}:${businessId}`,
+  )
+  if (!membership)
+    return c.json({ error: "You are not connected to this business." }, 404)
+  const business = await kv.get(`business:${businessId}`)
+  const reward = business?.rewards?.find(
+    (item: any) => String(item.id) === String(rewardId),
+  )
+  if (!reward)
+    return c.json({ error: "This reward is no longer available." }, 404)
+  const title = String(reward.title)
+  const points = Number(reward.points)
+  if (!Number.isFinite(points) || points <= 0 || membership.points < points)
+    return c.json({ error: "You do not have enough points." }, 400)
+  membership.points -= points
+  membership.updatedAt = new Date().toISOString()
+  await kv.set(
+    `pending:${normalizePhone(profile.phone)}:${businessId}`,
+    membership,
+  )
+  const claimCode = crypto
+    .randomUUID()
+    .replace(/-/g, "")
+    .slice(0, 8)
+    .toUpperCase()
+  const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString()
+  const claim = {
+    code: claimCode,
+    businessId,
+    ownerId: membership.ownerId,
+    customerName: profile.name,
+    phone: profile.phone,
+    rewardId,
+    title,
+    points,
+    status: "pending",
+    createdAt: new Date().toISOString(),
+    expiresAt,
   }
-  return c.json({ balance: membership.points, rewardId, claimCode, expiresAt });
-});
+  await kv.set(`claim:${claimCode}`, claim)
+  if (membership.ownerId) {
+    const ownerState = (await kv.get(`state:${membership.ownerId}`)) ?? {}
+    ownerState.customers = (ownerState.customers ?? []).map((customer: any) =>
+      normalizePhone(customer.phone) === normalizePhone(profile.phone)
+        ? { ...customer, points: membership.points }
+        : customer,
+    )
+    ownerState.activities = [
+      {
+        id: Date.now(),
+        businessId,
+        customerName: profile.name,
+        phone: profile.phone,
+        type: "claimed",
+        points,
+        description: `Reward claimed: ${title}`,
+        occurredAt: new Date().toISOString(),
+      },
+      ...(ownerState.activities ?? []),
+    ]
+    await kv.set(`state:${membership.ownerId}`, ownerState)
+    background(
+      dispatchNotification(String(membership.ownerId), "business", {
+        type: "reward_claimed",
+        category: "businessOperations",
+        title: "Reward claim ready",
+        body: `${profile.name} claimed ${title}. Open Perklyn to verify it in store.`,
+        businessId: Number(businessId),
+        businessName: business?.name,
+        claimCode,
+        data: { rewardTitle: title, points },
+      }),
+    )
+  }
+  return c.json({ balance: membership.points, rewardId, claimCode, expiresAt })
+})
 
 app.post(`${prefix}/verify-claim`, async (c) => {
-  const user = await authenticatedUser(c);
-  if (!user) return c.json({ error: "Unauthorized" }, 401);
-  const profile = await kv.get(`profile:${user.id}`);
-  if (profile?.role !== "business") return c.json({ error: "Only business owners can verify claim codes." }, 403);
-  if (!await checkRateLimit("verify", user.id, 10, 5 * 60 * 1000)) return c.json({ error: "Too many verification attempts. Try again in a few minutes." }, 429);
-  const { code } = await c.req.json();
-  const normalizedCode = String(code ?? "").replace(/[^a-zA-Z0-9]/g, "").toUpperCase();
-  if (!normalizedCode) return c.json({ error: "Enter a claim code." }, 400);
-  const claim = await kv.get(`claim:${normalizedCode}`);
-  if (!claim || claim.ownerId !== user.id) return c.json({ error: "This claim code is not valid for your business." }, 404);
-  if (claim.status === "verified") return c.json({ error: "This claim code has already been verified." }, 409);
+  const user = await authenticatedUser(c)
+  if (!user) return c.json({ error: "Unauthorized" }, 401)
+  const profile = await kv.get(`profile:${user.id}`)
+  if (profile?.role !== "business")
+    return c.json(
+      { error: "Only business owners can verify claim codes." },
+      403,
+    )
+  if (!(await checkRateLimit("verify", user.id, 10, 5 * 60 * 1000)))
+    return c.json(
+      { error: "Too many verification attempts. Try again in a few minutes." },
+      429,
+    )
+  const { code } = await c.req.json()
+  const normalizedCode = String(code ?? "")
+    .replace(/[^a-zA-Z0-9]/g, "")
+    .toUpperCase()
+  if (!normalizedCode) return c.json({ error: "Enter a claim code." }, 400)
+  const claim = await kv.get(`claim:${normalizedCode}`)
+  if (!claim || claim.ownerId !== user.id)
+    return c.json(
+      { error: "This claim code is not valid for your business." },
+      404,
+    )
+  if (claim.status === "verified")
+    return c.json({ error: "This claim code has already been verified." }, 409)
   if (new Date(claim.expiresAt).getTime() < Date.now()) {
-    claim.status = "expired";
-    await kv.set(`claim:${normalizedCode}`, claim);
-    return c.json({ error: "This claim code expired after 24 hours." }, 410);
+    claim.status = "expired"
+    await kv.set(`claim:${normalizedCode}`, claim)
+    return c.json({ error: "This claim code expired after 24 hours." }, 410)
   }
-  claim.status = "verified";
-  claim.verifiedAt = new Date().toISOString();
-  await kv.set(`claim:${normalizedCode}`, claim);
-  const ownerState = await kv.get(`state:${user.id}`) ?? {};
-  ownerState.activities = [{
-    id: Date.now(),
-    businessId: claim.businessId,
-    customerName: claim.customerName,
-    phone: claim.phone,
-    type: "claimed",
-    points: claim.points,
-    description: `Reward verified in store: ${claim.title}`,
-    occurredAt: new Date().toISOString(),
-  }, ...(ownerState.activities ?? [])];
-  await kv.set(`state:${user.id}`, ownerState);
-  const business = await kv.get(`business:${claim.businessId}`);
-  const customerLogin = await resolveCustomerUser(claim.phone);
+  claim.status = "verified"
+  claim.verifiedAt = new Date().toISOString()
+  await kv.set(`claim:${normalizedCode}`, claim)
+  const ownerState = (await kv.get(`state:${user.id}`)) ?? {}
+  ownerState.activities = [
+    {
+      id: Date.now(),
+      businessId: claim.businessId,
+      customerName: claim.customerName,
+      phone: claim.phone,
+      type: "claimed",
+      points: claim.points,
+      description: `Reward verified in store: ${claim.title}`,
+      occurredAt: new Date().toISOString(),
+    },
+    ...(ownerState.activities ?? []),
+  ]
+  await kv.set(`state:${user.id}`, ownerState)
+  const business = await kv.get(`business:${claim.businessId}`)
+  const customerLogin = await resolveCustomerUser(claim.phone)
   if (customerLogin) {
-    background(dispatchNotification(customerLogin.userId, "customer", {
-      type: "reward_verified",
-      category: "loyaltyActivity",
-      title: "Reward verified",
-      body: `${business?.name ?? "The business"} verified your ${claim.title}.`,
-      businessId: Number(claim.businessId),
-      businessName: business?.name,
-      data: { rewardTitle: claim.title, status: "verified" },
-    }));
+    background(
+      dispatchNotification(customerLogin.userId, "customer", {
+        type: "reward_verified",
+        category: "loyaltyActivity",
+        title: "Reward verified",
+        body: `${business?.name ?? "The business"} verified your ${claim.title}.`,
+        businessId: Number(claim.businessId),
+        businessName: business?.name,
+        data: { rewardTitle: claim.title, status: "verified" },
+      }),
+    )
   }
-  return c.json({ claim });
-});
+  return c.json({ claim })
+})
 
-Deno.serve(app.fetch);
+Deno.serve(app.fetch)
