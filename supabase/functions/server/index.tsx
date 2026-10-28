@@ -76,6 +76,45 @@ const hashText = async (value: string) => {
     .join("")
 }
 
+const businessStatus = async (businessId: number) =>
+  (await kv.get(`business-status:${businessId}`)) ?? {
+    businessId,
+    paused: false,
+  }
+
+const activeBusiness = async (businessId: number) => {
+  const [business, status] = await Promise.all([
+    kv.get(`business:${businessId}`),
+    businessStatus(businessId),
+  ])
+  return business && !status.paused ? business : null
+}
+
+const partitionBusinessAccess = async (businesses: any[]) => {
+  const checked = await Promise.all(
+    businesses.map(async (business: any) => ({
+      business,
+      paused: Boolean((await businessStatus(Number(business.id))).paused),
+    })),
+  )
+  return {
+    active: checked.filter((item) => !item.paused).map((item) => item.business),
+    paused: checked.filter((item) => item.paused).map((item) => item.business),
+  }
+}
+
+const authenticatedAdmin = async (c: any) => {
+  const token = c.req.header("X-Admin-Token")
+  if (!token) return null
+  const tokenHash = await hashText(token)
+  const session = await kv.get(`admin-session:${tokenHash}`)
+  if (!session || Number(session.expiresAt) <= Date.now()) {
+    if (session) await kv.del(`admin-session:${tokenHash}`)
+    return null
+  }
+  return { ...session, tokenHash }
+}
+
 const resolveCustomerUser = async (phone: string) => {
   const login = await kv.get(`login:customer:${normalizePhone(phone)}`)
   return login?.userId ? { userId: String(login.userId) } : null
@@ -206,7 +245,7 @@ const indexBusinessMember = async (
 }
 
 const ownedBusiness = async (businessId: number, userId: string) => {
-  const business = await kv.get(`business:${businessId}`)
+  const business = await activeBusiness(businessId)
   return business?._ownerId === userId ? business : null
 }
 
@@ -508,7 +547,7 @@ app.use(
   "/*",
   cors({
     origin: "*",
-    allowHeaders: ["Content-Type", "Authorization"],
+    allowHeaders: ["Content-Type", "Authorization", "X-Admin-Token"],
     allowMethods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     exposeHeaders: ["Content-Length"],
     maxAge: 600,
@@ -558,6 +597,109 @@ app.onError((error: any, c) => {
 })
 
 app.get(`${prefix}/health`, (c) => c.json({ status: "ok" }))
+
+app.post(`${prefix}/admin/login`, async (c) => {
+  const { phone = "", password = "" } = await c.req.json()
+  const normalizedPhone = normalizePhone(String(phone))
+  if (
+    !(await checkRateLimit(
+      "admin-login",
+      normalizedPhone || "unknown",
+      8,
+      15 * 60 * 1000,
+    ))
+  )
+    return c.json({ error: "Too many admin login attempts. Try again later." }, 429)
+  const configuredPhone = normalizePhone(
+    Deno.env.get("PERKLYN_ADMIN_PHONE") ?? "",
+  )
+  const configuredPassword = Deno.env.get("PERKLYN_ADMIN_PASSWORD") ?? ""
+  if (!configuredPhone || !configuredPassword)
+    return c.json(
+      { error: "Admin login secrets are not configured on the server." },
+      503,
+    )
+  const [phoneHash, configuredPhoneHash, passwordHash, configuredPasswordHash] =
+    await Promise.all([
+      hashText(normalizedPhone),
+      hashText(configuredPhone),
+      hashText(String(password)),
+      hashText(configuredPassword),
+    ])
+  if (
+    phoneHash !== configuredPhoneHash ||
+    passwordHash !== configuredPasswordHash
+  )
+    return c.json({ error: "The admin phone number or password is incorrect." }, 401)
+  const token = randomToken()
+  const tokenHash = await hashText(token)
+  const expiresAt = Date.now() + 8 * 60 * 60 * 1000
+  await kv.set(`admin-session:${tokenHash}`, {
+    phone: configuredPhone,
+    createdAt: Date.now(),
+    expiresAt,
+  })
+  return c.json({ token, expiresAt })
+})
+
+app.post(`${prefix}/admin/logout`, async (c) => {
+  const session = await authenticatedAdmin(c)
+  if (session) await kv.del(`admin-session:${session.tokenHash}`)
+  return c.json({ signedOut: true })
+})
+
+app.get(`${prefix}/admin/businesses`, async (c) => {
+  const session = await authenticatedAdmin(c)
+  if (!session) return c.json({ error: "Admin session expired." }, 401)
+  const storedBusinesses = await kv.getByPrefix("business:")
+  const uniqueBusinesses = Array.from(
+    new Map(
+      storedBusinesses
+        .filter((business: any) => Number.isFinite(Number(business?.id)))
+        .map((business: any) => [Number(business.id), business]),
+    ).values(),
+  )
+  const businesses = await Promise.all(
+    uniqueBusinesses.map(async (business: any) => {
+      const [status, owner] = await Promise.all([
+        businessStatus(Number(business.id)),
+        business._ownerId
+          ? kv.get(`profile:${business._ownerId}`)
+          : Promise.resolve(null),
+      ])
+      return {
+        id: Number(business.id),
+        name: String(business.name ?? "Unnamed business"),
+        category: String(business.category ?? ""),
+        ownerName: String(owner?.name ?? ""),
+        ownerPhone: String(owner?.phone ?? ""),
+        paused: Boolean(status.paused),
+        pausedAt: status.pausedAt ?? null,
+        updatedAt: status.updatedAt ?? null,
+      }
+    }),
+  )
+  businesses.sort((left, right) => right.id - left.id)
+  return c.json({ businesses })
+})
+
+app.put(`${prefix}/admin/businesses/:id/status`, async (c) => {
+  const session = await authenticatedAdmin(c)
+  if (!session) return c.json({ error: "Admin session expired." }, 401)
+  const businessId = Number(c.req.param("id"))
+  const business = await kv.get(`business:${businessId}`)
+  if (!business) return c.json({ error: "Business ID was not found." }, 404)
+  const { paused } = await c.req.json()
+  const status = {
+    businessId,
+    paused: Boolean(paused),
+    pausedAt: paused ? new Date().toISOString() : null,
+    updatedAt: new Date().toISOString(),
+    updatedBy: session.phone,
+  }
+  await kv.set(`business-status:${businessId}`, status)
+  return c.json({ status })
+})
 
 app.post(`${prefix}/signup`, async (c) => {
   try {
@@ -701,6 +843,20 @@ app.post(`${prefix}/login`, async (c) => {
           ),
         ),
       )
+    }
+  }
+  if (role === "business" && data.user) {
+    const state = await kv.get(`state:${data.user.id}`)
+    const businesses = Array.isArray(state?.businesses) ? state.businesses : []
+    if (businesses.length > 0) {
+      const access = await partitionBusinessAccess(businesses)
+      if (access.active.length === 0)
+        return c.json(
+          {
+            error: `Business ID ${access.paused.map((business: any) => business.id).join(", ")} is paused. Please contact Perklyn support.`,
+          },
+          403,
+        )
     }
   }
   return c.json({
@@ -1008,10 +1164,24 @@ app.get(`${prefix}/me`, async (c) => {
     kv.get(`profile:${user.id}`),
     kv.get(`state:${user.id}`),
   ])
-  return c.json({
-    profile: profile ?? user.user_metadata,
-    state: state ?? null,
-  })
+  const resolvedProfile = profile ?? user.user_metadata
+  let visibleState = state ?? null
+  if (
+    resolvedProfile?.role === "business" &&
+    Array.isArray(state?.businesses) &&
+    state.businesses.length > 0
+  ) {
+    const access = await partitionBusinessAccess(state.businesses)
+    if (access.active.length === 0)
+      return c.json(
+        {
+          error: `Business ID ${access.paused.map((business: any) => business.id).join(", ")} is paused. Please contact Perklyn support.`,
+        },
+        403,
+      )
+    visibleState = { ...state, businesses: access.active }
+  }
+  return c.json({ profile: resolvedProfile, state: visibleState })
 })
 
 app.put(`${prefix}/state`, async (c) => {
@@ -1020,8 +1190,18 @@ app.put(`${prefix}/state`, async (c) => {
   const state = await c.req.json()
   if (JSON.stringify(state).length > 1_000_000)
     return c.json({ error: "Account state is too large." }, 413)
-  await kv.set(`state:${user.id}`, state)
   const profile = await kv.get(`profile:${user.id}`)
+  if (profile?.role === "business" && Array.isArray(state.businesses)) {
+    const access = await partitionBusinessAccess(state.businesses)
+    if (access.paused.length > 0)
+      return c.json(
+        {
+          error: `Business ID ${access.paused.map((business: any) => business.id).join(", ")} is paused. Please contact Perklyn support.`,
+        },
+        403,
+      )
+  }
+  await kv.set(`state:${user.id}`, state)
   if (profile?.role === "business" && Array.isArray(state.businesses)) {
     await Promise.all(
       state.businesses.map((business: any) =>
@@ -2564,7 +2744,7 @@ app.post(`${prefix}/billing/invoices/:id/credit-notes`, async (c) => {
 app.get(`${prefix}/business/:id`, async (c) => {
   const user = await authenticatedUser(c)
   if (!user) return c.json({ error: "Unauthorized" }, 401)
-  const business = await kv.get(`business:${c.req.param("id")}`)
+  const business = await activeBusiness(Number(c.req.param("id")))
   if (!business)
     return c.json({ error: "This business QR code is not active." }, 404)
   return c.json({ business })
@@ -2577,7 +2757,7 @@ app.post(`${prefix}/join-business`, async (c) => {
   if (profile?.role !== "customer")
     return c.json({ error: "Only customers can join businesses." }, 403)
   const { businessId } = await c.req.json()
-  const business = await kv.get(`business:${businessId}`)
+  const business = await activeBusiness(Number(businessId))
   if (!business)
     return c.json({ error: "This business QR code is not active." }, 404)
   const key = `pending:${normalizePhone(profile.phone)}:${business.id}`
@@ -3019,7 +3199,7 @@ app.post(`${prefix}/nfc/claim-preview`, async (c) => {
       status: "invalid_card",
       serverNow: new Date().toISOString(),
     })
-  const business = await kv.get(`business:${card.businessId}`)
+  const business = await activeBusiness(Number(card.businessId))
   const issue = await currentNfcIssue(card)
   const status = !issue
     ? "no_active_issue"
@@ -3065,7 +3245,7 @@ app.post(`${prefix}/nfc/claim`, async (c) => {
   const active = card ? await kv.get(`nfc-active:${card.id}`) : null
   if (!card || card.status !== "active" || !active?.currentIssueKey)
     return c.json({ error: "No points are ready on this card." }, 409)
-  const business = await kv.get(`business:${card.businessId}`)
+  const business = await activeBusiness(Number(card.businessId))
   if (!business || business._ownerId !== card.ownerId)
     return c.json({ error: "This NFC card is no longer connected." }, 409)
   const membershipKey = `pending:${normalizePhone(profile.phone)}:${card.businessId}`
@@ -3633,7 +3813,7 @@ app.post(`${prefix}/claim-reward`, async (c) => {
   )
   if (!membership)
     return c.json({ error: "You are not connected to this business." }, 404)
-  const business = await kv.get(`business:${businessId}`)
+  const business = await activeBusiness(Number(businessId))
   const reward = business?.rewards?.find(
     (item: any) => String(item.id) === String(rewardId),
   )
@@ -3756,7 +3936,7 @@ app.post(`${prefix}/verify-claim`, async (c) => {
     ...(ownerState.activities ?? []),
   ]
   await kv.set(`state:${user.id}`, ownerState)
-  const business = await kv.get(`business:${claim.businessId}`)
+  const business = await activeBusiness(Number(claim.businessId))
   const customerLogin = await resolveCustomerUser(claim.phone)
   if (customerLogin) {
     background(

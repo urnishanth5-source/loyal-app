@@ -2143,6 +2143,407 @@ button {
   .customer-reward button { grid-column: 1 / -1; width: 100%; }
 }
 
+/* Perklyn administrator */
+.admin-login-page,
+.admin-page {
+  min-height: 100vh;
+  color: #f8efff;
+  background:
+    radial-gradient(circle at 12% 8%, rgb(190 62 255 / 22%), transparent 34rem),
+    radial-gradient(circle at 90% 18%, rgb(255 76 169 / 16%), transparent 30rem),
+    linear-gradient(145deg, #13071f, #251039 54%, #100719);
+}
+
+.admin-login-page {
+  display: grid;
+  place-items: center;
+  padding: 2rem 1rem;
+}
+
+.admin-login-card {
+  width: min(100%, 29rem);
+  padding: 2rem;
+  border: 1px solid rgb(255 255 255 / 15%);
+  border-radius: 1.6rem;
+  background: rgb(28 11 43 / 78%);
+  box-shadow: 0 2rem 6rem rgb(0 0 0 / 38%);
+  backdrop-filter: blur(24px);
+}
+
+.admin-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: .65rem;
+  color: white;
+  font-weight: 900;
+  text-decoration: none;
+}
+
+.admin-brand img {
+  width: 2rem;
+  height: 2rem;
+  object-fit: contain;
+}
+
+.admin-kicker {
+  margin-top: 2rem;
+  color: #ff8bcb;
+  font-size: .68rem;
+  font-weight: 900;
+  letter-spacing: .14em;
+  text-transform: uppercase;
+}
+
+.admin-login-card h1,
+.admin-title-row h1 {
+  margin: .45rem 0 0;
+  color: white;
+  font-size: clamp(2rem, 5vw, 3rem);
+  letter-spacing: -.055em;
+}
+
+.admin-login-card > p,
+.admin-title-row p {
+  margin: .8rem 0 0;
+  color: rgb(239 220 252 / 64%);
+  font-size: .82rem;
+  line-height: 1.65;
+}
+
+.admin-login-card form {
+  display: grid;
+  gap: 1rem;
+  margin-top: 1.7rem;
+}
+
+.admin-login-card label {
+  display: grid;
+  gap: .4rem;
+  color: #eadcf6;
+  font-size: .72rem;
+  font-weight: 800;
+}
+
+.admin-login-card input,
+.admin-toolbar input {
+  width: 100%;
+  min-height: 3rem;
+  border: 1px solid rgb(255 255 255 / 16%);
+  border-radius: .85rem;
+  outline: none;
+  color: white;
+  background: rgb(255 255 255 / 8%);
+}
+
+.admin-login-card input {
+  padding: .75rem .9rem;
+}
+
+.admin-login-card input:focus,
+.admin-toolbar input:focus {
+  border-color: rgb(255 119 196 / 65%);
+  box-shadow: 0 0 0 .2rem rgb(255 79 163 / 10%);
+}
+
+.admin-phone-field {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  align-items: center;
+  border: 1px solid rgb(255 255 255 / 16%);
+  border-radius: .85rem;
+  background: rgb(255 255 255 / 8%);
+}
+
+.admin-phone-field span {
+  padding-left: .9rem;
+  color: #ff9bd4;
+}
+
+.admin-phone-field input {
+  border: 0;
+  background: transparent;
+}
+
+.admin-login-card form > button,
+.admin-header button,
+.admin-business-list article > button {
+  min-height: 2.8rem;
+  border: 1px solid transparent;
+  border-radius: .8rem;
+  padding: .65rem 1rem;
+  color: white;
+  background: linear-gradient(135deg, #b62cff, #ff4fa3);
+  font-size: .72rem;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.admin-login-card button:disabled,
+.admin-header button:disabled,
+.admin-business-list button:disabled {
+  cursor: wait;
+  opacity: .55;
+}
+
+.admin-alert,
+.admin-message {
+  padding: .8rem .9rem;
+  border: 1px solid rgb(255 119 196 / 25%);
+  border-radius: .8rem;
+  color: #ffe0f2;
+  background: rgb(255 79 163 / 10%);
+  font-size: .72rem;
+  line-height: 1.5;
+}
+
+.admin-login-card > small {
+  display: block;
+  margin-top: 1rem;
+  color: rgb(239 220 252 / 40%);
+  font-size: .62rem;
+  text-align: center;
+}
+
+.admin-header {
+  display: flex;
+  min-height: 4.8rem;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0 max(1rem, calc((100vw - 76rem) / 2));
+  border-bottom: 1px solid rgb(255 255 255 / 10%);
+  background: rgb(14 5 23 / 60%);
+  backdrop-filter: blur(18px);
+}
+
+.admin-header > div {
+  display: flex;
+  gap: .5rem;
+}
+
+.admin-header button {
+  min-height: 2.4rem;
+  border-color: rgb(255 255 255 / 14%);
+  background: rgb(255 255 255 / 7%);
+}
+
+.admin-header .admin-logout {
+  color: #ffb3dc;
+}
+
+.admin-content {
+  width: min(calc(100% - 2rem), 76rem);
+  margin: 0 auto;
+  padding: 3rem 0 5rem;
+}
+
+.admin-title-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: end;
+  gap: 2rem;
+}
+
+.admin-title-row .admin-kicker {
+  margin-top: 0;
+}
+
+.admin-summary {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(7rem, 1fr));
+  gap: .65rem;
+}
+
+.admin-summary span {
+  display: grid;
+  gap: .15rem;
+  padding: .8rem 1rem;
+  border: 1px solid rgb(255 255 255 / 11%);
+  border-radius: .9rem;
+  color: rgb(239 220 252 / 55%);
+  background: rgb(255 255 255 / 5%);
+  font-size: .62rem;
+  font-weight: 800;
+}
+
+.admin-summary b {
+  color: white;
+  font-size: 1.35rem;
+}
+
+.admin-summary .paused b {
+  color: #ff8bcb;
+}
+
+.admin-toolbar {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 1rem;
+  margin-top: 2rem;
+}
+
+.admin-toolbar input {
+  padding: .75rem 1rem;
+}
+
+.admin-toolbar span {
+  color: rgb(239 220 252 / 50%);
+  font-size: .68rem;
+  font-weight: 800;
+}
+
+.admin-message {
+  margin-top: 1rem;
+}
+
+.admin-business-list {
+  display: grid;
+  gap: .65rem;
+  margin-top: 1rem;
+}
+
+.admin-business-list article {
+  display: grid;
+  grid-template-columns: 9rem minmax(0, 1fr) auto 7rem;
+  align-items: center;
+  gap: 1rem;
+  padding: .9rem;
+  border: 1px solid rgb(255 255 255 / 11%);
+  border-radius: 1rem;
+  background: rgb(255 255 255 / 5%);
+  transition: border-color .16s ease, background .16s ease;
+}
+
+.admin-business-list article:hover {
+  border-color: rgb(255 139 203 / 36%);
+  background: rgb(255 255 255 / 7%);
+}
+
+.admin-business-list article.is-paused {
+  border-color: rgb(255 91 154 / 24%);
+  background: rgb(255 64 132 / 7%);
+}
+
+.admin-business-id {
+  display: grid;
+  gap: .15rem;
+}
+
+.admin-business-id span {
+  color: rgb(239 220 252 / 45%);
+  font-size: .58rem;
+  font-weight: 900;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+
+.admin-business-id strong {
+  color: #ff9bd4;
+  font-size: .95rem;
+  overflow-wrap: anywhere;
+}
+
+.admin-business-details {
+  display: grid;
+  min-width: 0;
+  gap: .15rem;
+}
+
+.admin-business-details b {
+  color: white;
+}
+
+.admin-business-details span,
+.admin-business-details small {
+  color: rgb(239 220 252 / 55%);
+  font-size: .65rem;
+}
+
+.admin-status {
+  min-width: 5rem;
+  padding: .4rem .7rem;
+  border-radius: 999px;
+  color: #baf6d4;
+  background: rgb(47 199 116 / 12%);
+  font-size: .62rem;
+  font-weight: 900;
+  text-align: center;
+}
+
+.is-paused .admin-status {
+  color: #ffc0dc;
+  background: rgb(255 75 145 / 13%);
+}
+
+.admin-business-list article > button.pause {
+  border-color: rgb(255 107 168 / 28%);
+  color: #ffc0dc;
+  background: rgb(255 75 145 / 11%);
+}
+
+.admin-business-list article > button.resume {
+  border-color: rgb(88 220 148 / 28%);
+  color: #c9ffe0;
+  background: rgb(47 199 116 / 12%);
+}
+
+.admin-empty {
+  padding: 3rem 1rem;
+  border: 1px dashed rgb(255 255 255 / 13%);
+  border-radius: 1rem;
+  color: rgb(239 220 252 / 45%);
+  text-align: center;
+}
+
+@media (max-width: 820px) {
+  .admin-title-row {
+    grid-template-columns: 1fr;
+    align-items: start;
+  }
+
+  .admin-summary {
+    width: 100%;
+  }
+
+  .admin-business-list article {
+    grid-template-columns: 1fr auto;
+  }
+
+  .admin-business-details {
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
+
+  .admin-status {
+    justify-self: start;
+  }
+}
+
+@media (max-width: 520px) {
+  .admin-login-card {
+    padding: 1.4rem;
+  }
+
+  .admin-header {
+    align-items: flex-start;
+    padding-top: .8rem;
+    padding-bottom: .8rem;
+  }
+
+  .admin-header > div {
+    display: grid;
+  }
+
+  .admin-summary {
+    grid-template-columns: 1fr;
+  }
+
+  .admin-toolbar {
+    grid-template-columns: 1fr;
+  }
+}
+
 /* Perklyn glass theme */
 body {
   background:

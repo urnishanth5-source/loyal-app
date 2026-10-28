@@ -11,6 +11,10 @@
     {
       "source": "/organization",
       "destination": "/index.html"
+    },
+    {
+      "source": "/admin",
+      "destination": "/index.html"
     }
   ]
 }
