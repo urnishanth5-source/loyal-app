@@ -870,7 +870,7 @@ function SignIn({
     },
   ) => Promise<{ ok: boolean message?: string }>
 }) {
-  const [role, setRole] = useState<Role>("customer")
+  const [role, setRole] = useState<Role | null>(null)
   const [showSignup, setShowSignup] = useState(false)
   const [showRecovery, setShowRecovery] = useState(false)
   const [authorizationCode, setAuthorizationCode] = useState("")
@@ -888,6 +888,7 @@ function SignIn({
   const [mascotBlink, setMascotBlink] = useState(0)
   const submit = async (event: FormEvent) => {
     event.preventDefault()
+    if (!role) return
     setAuthorizationError("")
     setAuthMessage("")
     setSubmitting(true)
@@ -927,6 +928,80 @@ function SignIn({
       error
         ? error.message
         : "Check your inbox for a secure password-reset link.",
+    )
+  }
+
+  const chooseRole = (nextRole: Role) => {
+    setRole(nextRole)
+    setPhone(
+      nextRole === "customer" ? "+1 202 555 0147" : "+1 202 555 0188",
+    )
+    setShowSignup(false)
+    setShowRecovery(false)
+    setAuthorizationError("")
+    setAuthMessage("")
+  }
+
+  if (!role) {
+    return (
+      <main className="role-entry-page">
+        <header className="role-entry-header">
+          <Brand light />
+          <span>Rewards made simple</span>
+        </header>
+        <section className="role-entry-content">
+          <div className="role-entry-copy">
+            <div className="eyebrow text-[#ffaddb]">
+              <Icon name="spark" size={17} /> Welcome to Perklyn
+            </div>
+            <h1>How would you like to continue?</h1>
+            <p>
+              Choose your account type to open the right Perklyn experience.
+              You can return here anytime before signing in.
+            </p>
+          </div>
+          <div className="role-entry-options">
+            <button onClick={() => chooseRole("customer")}>
+              <i>
+                <Icon name="card" size={28} />
+              </i>
+              <span>
+                <small>I am a</small>
+                <b>Customer</b>
+                <em>
+                  View loyalty cards, track points, and claim rewards from your
+                  favorite businesses.
+                </em>
+              </span>
+              <strong>
+                Continue <Icon name="arrow" size={18} />
+              </strong>
+            </button>
+            <button onClick={() => chooseRole("business")}>
+              <i>
+                <Icon name="building" size={28} />
+              </i>
+              <span>
+                <small>I represent a</small>
+                <b>Business</b>
+                <em>
+                  Manage customers, issue points, create rewards, and run your
+                  billing workspace.
+                </em>
+              </span>
+              <strong>
+                Continue <Icon name="arrow" size={18} />
+              </strong>
+            </button>
+          </div>
+          <div className="role-entry-note">
+            Secure accounts powered by Supabase
+            <button onClick={() => (window.location.href = "/privacy-policy")}>
+              Privacy Policy
+            </button>
+          </div>
+        </section>
+      </main>
     )
   }
 
@@ -982,6 +1057,19 @@ function SignIn({
           <div className="mb-10 lg:hidden">
             <Brand />
           </div>
+          <button
+            type="button"
+            className="auth-change-role"
+            onClick={() => {
+              setRole(null)
+              setShowSignup(false)
+              setShowRecovery(false)
+              setPassword("")
+              setAuthMessage("")
+            }}
+          >
+            <span>←</span> Change account type
+          </button>
           {!showRecovery && !showSignup && (
             <div className="login-mascot" aria-hidden="true">
               <svg viewBox="0 0 240 220" role="presentation">
@@ -1040,43 +1128,30 @@ function SignIn({
               ? "Reset your password"
               : showSignup
                 ? "Create your account"
-                : "Welcome back"}
+                : `${role === "customer" ? "Customer" : "Business"} sign in`}
           </div>
           <p className="mt-3 text-[#7c6f84]">
             {showRecovery
               ? "We’ll email you a secure link to choose a new password."
               : showSignup
-                ? "Join Perklyn and start earning more."
-                : "Sign in to continue to Perklyn."}
+                ? `Create your ${role} account to continue.`
+                : `Sign in to your ${role} account to continue.`}
           </p>
 
           {!showRecovery && (
-            <div className="role-switch mt-8">
-              <button
-                type="button"
-                onClick={() => {
-                  setRole("customer")
-                  setPhone("+1 202 555 0147")
-                  setAuthorizationError("")
-                  setAuthMessage("")
-                }}
-                className={role === "customer" ? "active" : ""}
-              >
-                <Icon name="card" size={18} />
-                Customer
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setRole("business")
-                  setPhone("+1 202 555 0188")
-                  setAuthorizationError("")
-                  setAuthMessage("")
-                }}
-                className={role === "business" ? "active" : ""}
-              >
-                <Icon name="building" size={18} />
-                Business
+            <div className="selected-role-banner mt-8">
+              <i>
+                <Icon
+                  name={role === "customer" ? "card" : "building"}
+                  size={18}
+                />
+              </i>
+              <span>
+                <small>Account type</small>
+                <b>{role === "customer" ? "Customer" : "Business"}</b>
+              </span>
+              <button type="button" onClick={() => setRole(null)}>
+                Change
               </button>
             </div>
           )}

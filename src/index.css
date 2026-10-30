@@ -75,6 +75,254 @@ button {
   padding: 4rem clamp(2rem, 7vw, 7rem);
 }
 
+.role-entry-page {
+  min-height: 100vh;
+  padding: clamp(1.3rem, 4vw, 3rem);
+  color: white;
+  background:
+    radial-gradient(circle at 12% 15%, rgb(182 44 255 / 30%), transparent 34rem),
+    radial-gradient(circle at 88% 22%, rgb(255 79 163 / 22%), transparent 30rem),
+    linear-gradient(145deg, #1c0930, #35115f 58%, #170821);
+}
+
+.role-entry-header {
+  display: flex;
+  width: min(100%, 76rem);
+  margin: 0 auto;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.role-entry-header > span {
+  color: rgb(255 255 255 / 45%);
+  font-size: .68rem;
+  font-weight: 800;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+}
+
+.role-entry-content {
+  display: grid;
+  width: min(100%, 68rem);
+  min-height: calc(100vh - 8rem);
+  place-content: center;
+  margin: 0 auto;
+  padding: 4rem 0 2rem;
+}
+
+.role-entry-copy {
+  max-width: 46rem;
+  margin: 0 auto;
+  text-align: center;
+}
+
+.role-entry-copy .eyebrow {
+  justify-content: center;
+}
+
+.role-entry-copy h1 {
+  margin: 1.2rem 0 0;
+  font-size: clamp(2.5rem, 6vw, 5rem);
+  line-height: .98;
+  letter-spacing: -.06em;
+}
+
+.role-entry-copy p {
+  max-width: 39rem;
+  margin: 1.4rem auto 0;
+  color: rgb(239 224 249 / 67%);
+  font-size: clamp(.85rem, 1.6vw, 1rem);
+  line-height: 1.7;
+}
+
+.role-entry-options {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
+  margin-top: 2.5rem;
+}
+
+.role-entry-options > button {
+  display: grid;
+  min-height: 17rem;
+  grid-template-rows: auto 1fr auto;
+  gap: 1.2rem;
+  padding: 1.5rem;
+  border: 1px solid rgb(255 255 255 / 15%);
+  border-radius: 1.5rem;
+  color: white;
+  background:
+    radial-gradient(circle at 100% 0, rgb(255 79 163 / 14%), transparent 48%),
+    rgb(255 255 255 / 7%);
+  text-align: left;
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 8%);
+  backdrop-filter: blur(18px);
+  transition:
+    transform .2s ease,
+    border-color .2s ease,
+    background .2s ease,
+    box-shadow .2s ease;
+}
+
+.role-entry-options > button:hover {
+  border-color: rgb(255 139 203 / 58%);
+  background:
+    radial-gradient(circle at 100% 0, rgb(255 79 163 / 22%), transparent 52%),
+    rgb(255 255 255 / 10%);
+  box-shadow: 0 1.2rem 3rem rgb(0 0 0 / 24%);
+  transform: translateY(-4px);
+}
+
+.role-entry-options > button > i {
+  display: grid;
+  width: 3.2rem;
+  height: 3.2rem;
+  place-items: center;
+  border-radius: 1rem;
+  color: #ffb3dc;
+  background: linear-gradient(135deg, rgb(182 44 255 / 32%), rgb(255 79 163 / 24%));
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 12%);
+}
+
+.role-entry-options > button > span {
+  display: grid;
+  align-content: start;
+}
+
+.role-entry-options small {
+  color: #ff9bd4;
+  font-size: .64rem;
+  font-weight: 900;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+}
+
+.role-entry-options b {
+  margin-top: .25rem;
+  font-size: clamp(1.6rem, 3vw, 2.2rem);
+  letter-spacing: -.04em;
+}
+
+.role-entry-options em {
+  margin-top: .65rem;
+  color: rgb(239 224 249 / 62%);
+  font-size: .76rem;
+  font-style: normal;
+  line-height: 1.65;
+}
+
+.role-entry-options strong {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-top: 1rem;
+  border-top: 1px solid rgb(255 255 255 / 10%);
+  color: #ffd1ea;
+  font-size: .72rem;
+}
+
+.role-entry-note {
+  display: flex;
+  justify-content: center;
+  gap: .7rem;
+  margin-top: 1.5rem;
+  color: rgb(255 255 255 / 38%);
+  font-size: .62rem;
+}
+
+.role-entry-note button {
+  border: 0;
+  color: #ff9bd4;
+  background: transparent;
+  font-weight: 800;
+}
+
+.auth-change-role {
+  display: inline-flex;
+  align-items: center;
+  gap: .45rem;
+  margin-bottom: 1.2rem;
+  border: 0;
+  color: #8758a8;
+  background: transparent;
+  font-size: .7rem;
+  font-weight: 800;
+}
+
+.auth-change-role:hover {
+  color: #ff4fa3;
+}
+
+.selected-role-banner {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: .7rem;
+  padding: .7rem;
+  border: 1px solid #ead9f6;
+  border-radius: 1rem;
+  background: linear-gradient(135deg, #faf5ff, #fff7fb);
+}
+
+.selected-role-banner > i {
+  display: grid;
+  width: 2.4rem;
+  height: 2.4rem;
+  place-items: center;
+  border-radius: .75rem;
+  color: white;
+  background: linear-gradient(135deg, #b62cff, #ff4fa3);
+}
+
+.selected-role-banner > span {
+  display: grid;
+}
+
+.selected-role-banner small {
+  color: #9b86ab;
+  font-size: .56rem;
+  font-weight: 800;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+
+.selected-role-banner b {
+  color: #482171;
+  font-size: .78rem;
+}
+
+.selected-role-banner button {
+  border: 0;
+  color: #a52a84;
+  background: transparent;
+  font-size: .65rem;
+  font-weight: 900;
+}
+
+@media (max-width: 680px) {
+  .role-entry-header > span {
+    display: none;
+  }
+
+  .role-entry-content {
+    place-content: start;
+    padding-top: 3.5rem;
+  }
+
+  .role-entry-options {
+    grid-template-columns: 1fr;
+  }
+
+  .role-entry-options > button {
+    min-height: 14rem;
+  }
+
+  .role-entry-note {
+    flex-wrap: wrap;
+  }
+}
+
 .login-mascot {
   position: relative;
   width: min(62vw, 14rem);
