@@ -2499,35 +2499,75 @@ app.put(`${prefix}/billing/invoices/:id`, async (c) => {
     return c.json({ error: "Invoice not found." }, 404)
   if (itemsResult.error) throw itemsResult.error
   try {
-    const requested = new Map<string, any>(
-      (Array.isArray(body.lines) ? body.lines : []).map((line: any) => [
-        String(line.id),
-        line,
-      ]),
+    const requested = Array.isArray(body.lines) ? body.lines : []
+    if (requested.length === 0)
+      throw new Error("An invoice must contain at least one item.")
+    if (requested.length > 100)
+      throw new Error("An invoice cannot contain more than 100 items.")
+    const existingById = new Map<string, any>(
+      (itemsResult.data ?? []).map((item: any) => [String(item.id), item]),
     )
-    const rawLines = (itemsResult.data ?? []).map((item: any) => {
-      const edit: any = requested.get(item.id)
-      if (!edit)
-        throw new Error("Every original invoice item must be retained.")
+    const newCatalogIds = Array.from(
+      new Set(
+        requested
+          .filter((line: any) => !existingById.has(String(line.id)))
+          .map((line: any) => String(line.catalogItemId ?? ""))
+          .filter(Boolean),
+      ),
+    )
+    let catalogById = new Map<string, any>()
+    if (newCatalogIds.length > 0) {
+      const { data: catalogItems, error: catalogError } = await adminClient()
+        .from("billing_catalog_items")
+        .select("*")
+        .eq("business_id", businessId)
+        .eq("active", true)
+        .in("id", newCatalogIds)
+      if (catalogError) throw catalogError
+      catalogById = new Map(
+        (catalogItems ?? []).map((item: any) => [String(item.id), item]),
+      )
+    }
+    const rawLines = requested.map((edit: any) => {
+      const existing = existingById.get(String(edit.id))
+      if (existing)
+        return {
+          id: existing.id,
+          catalogItemId: existing.catalog_item_id,
+          itemType: existing.item_type,
+          name: existing.name,
+          hsnSac: existing.hsn_sac,
+          unit: existing.unit,
+          quantity: Number(edit.quantity),
+          unitPricePaise: normalizeMoney(edit.unitPricePaise),
+          priceIncludesTax: existing.price_includes_tax,
+          gstRateBps: Number(existing.gst_rate_bps),
+          lineDiscountPaise: normalizeMoney(edit.lineDiscountPaise),
+        }
+      const catalogItem = catalogById.get(String(edit.catalogItemId ?? ""))
+      if (!catalogItem)
+        throw new Error(
+          "A newly added catalog item is inactive or no longer available.",
+        )
       return {
-        id: item.id,
-        catalogItemId: item.catalog_item_id,
-        itemType: item.item_type,
-        name: item.name,
-        hsnSac: item.hsn_sac,
-        unit: item.unit,
+        id: crypto.randomUUID(),
+        catalogItemId: catalogItem.id,
+        itemType: catalogItem.item_type,
+        name: catalogItem.name,
+        hsnSac: catalogItem.hsn_sac,
+        unit: catalogItem.unit,
         quantity: Number(edit.quantity),
         unitPricePaise: normalizeMoney(edit.unitPricePaise),
-        priceIncludesTax: item.price_includes_tax,
-        gstRateBps: Number(item.gst_rate_bps),
-        lineDiscountPaise: Number(item.line_discount_paise),
+        priceIncludesTax: catalogItem.price_includes_tax,
+        gstRateBps: Number(catalogItem.gst_rate_bps),
+        lineDiscountPaise: normalizeMoney(edit.lineDiscountPaise),
       }
     })
     const invoice = invoiceResult.data
     const sellerStateCode = String(invoice.seller_snapshot?.stateCode ?? "")
     const quote = calculateBillingQuote(
       rawLines,
-      invoice.cart_discount_paise,
+      body.cartDiscountPaise ?? invoice.cart_discount_paise,
       sellerStateCode,
       invoice.place_of_supply_code,
     )
@@ -2538,9 +2578,16 @@ app.put(`${prefix}/billing/invoices/:id`, async (c) => {
       : 0
     const rpcLines = quote.lines.map((line: any) => ({
       id: line.id,
+      catalog_item_id: line.catalogItemId ?? null,
       line_number: line.lineNumber,
+      item_type: line.itemType,
+      name: line.name,
+      hsn_sac: line.hsnSac,
+      unit: line.unit,
       quantity: line.quantity,
       unit_price_paise: line.unitPricePaise,
+      price_includes_tax: line.priceIncludesTax,
+      gst_rate_bps: line.gstRateBps,
       gross_before_discount_paise: line.grossBeforeDiscountPaise,
       line_discount_paise: line.lineDiscountPaise,
       allocated_cart_discount_paise: line.allocatedCartDiscountPaise,

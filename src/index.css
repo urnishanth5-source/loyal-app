@@ -7292,6 +7292,10 @@ body::-webkit-scrollbar {
   box-shadow: 0 2rem 6rem rgb(10 2 20 / 45%);
 }
 
+.billing-detail-editing {
+  width: min(100%, 72rem);
+}
+
 .billing-scanner {
   width: min(100%, 36rem);
   padding: 1.2rem;
@@ -7353,12 +7357,38 @@ body::-webkit-scrollbar {
 }
 
 .billing-edit-lines > div {
+  display: grid;
+  grid-template-columns: minmax(10rem, .7fr) minmax(0, 1.7fr);
   align-items: end;
+}
+
+.billing-invoice-edit-toolbar {
+  display: grid;
+  grid-template-columns: minmax(15rem, 1.4fr) minmax(10rem, .6fr);
+  gap: .7rem;
+  margin-top: 1rem;
+  padding: .9rem;
+  border: 1px solid rgb(255 255 255 / 12%);
+  border-radius: .9rem;
+  background: rgb(255 255 255 / 5%);
+}
+
+.billing-invoice-edit-toolbar label {
+  display: grid;
+  gap: .3rem;
+  color: #d9c6e8;
+  font-size: .65rem;
+  font-weight: 800;
+}
+
+.billing-invoice-edit-toolbar .field {
+  margin-top: 0;
 }
 
 .billing-invoice-edit-fields {
   display: grid;
-  grid-template-columns: repeat(2, minmax(6rem, 1fr));
+  grid-template-columns: repeat(4, minmax(6rem, 1fr)) auto;
+  align-items: end;
   gap: .5rem;
 }
 
@@ -7378,6 +7408,22 @@ body::-webkit-scrollbar {
   border-radius: .65rem;
   color: white;
   background: rgb(255 255 255 / 9%);
+}
+
+.billing-remove-invoice-line {
+  min-height: 2.4rem;
+  padding: .55rem .7rem;
+  border: 1px solid rgb(255 120 176 / 25%);
+  border-radius: .65rem;
+  color: #ffb6d8;
+  background: rgb(255 79 143 / 9%);
+  font-size: .65rem;
+  font-weight: 900;
+}
+
+.billing-remove-invoice-line:disabled {
+  cursor: not-allowed;
+  opacity: .35;
 }
 
 .billing-detail-lines span {
@@ -7523,5 +7569,424 @@ body::-webkit-scrollbar {
 
   .billing-invoice-meta {
     grid-template-columns: 1fr 1fr;
+  }
+}
+
+/* Premium login-only composition. Signup and recovery retain their existing UI. */
+.signin-shell-login {
+  grid-template-columns: minmax(0, 1.08fr) minmax(30rem, .92fr);
+  color: white;
+  background:
+    radial-gradient(circle at 18% 14%, rgb(124 42 232 / 20%), transparent 30rem),
+    linear-gradient(135deg, #160a25, #21102f 48%, #11091a) !important;
+}
+
+.signin-shell-login .signin-story {
+  padding: clamp(2.2rem, 4.5vw, 4.5rem);
+  border-right: 1px solid rgb(207 177 232 / 13%);
+  background:
+    radial-gradient(circle at 78% 20%, rgb(151 72 223 / 16%), transparent 23rem),
+    radial-gradient(circle at 15% 80%, rgb(92 44 137 / 14%), transparent 25rem),
+    linear-gradient(145deg, rgb(43 20 65 / 88%), rgb(25 13 37 / 96%));
+  backdrop-filter: none;
+}
+
+.signin-shell-login .signin-story::after {
+  width: 25rem;
+  height: 25rem;
+  right: -12rem;
+  bottom: -14rem;
+  border-color: rgb(216 183 242 / 9%);
+  box-shadow:
+    0 0 0 4rem rgb(255 255 255 / 1.5%),
+    0 0 0 8rem rgb(255 255 255 / .8%);
+}
+
+.signin-shell-login .signin-story .text-\[clamp\(2\.8rem\,5\.7vw\,5\.5rem\)\] {
+  max-width: 42rem;
+  font-size: clamp(3rem, 5.5vw, 5.35rem);
+  line-height: .94;
+}
+
+.signin-shell-login .signin-story p {
+  color: rgb(220 205 232 / 68%);
+}
+
+.login-loyalty-visual {
+  position: relative;
+  width: min(100%, 31rem);
+  margin-top: 2.2rem;
+}
+
+.login-membership-card {
+  min-height: 12.5rem;
+  padding: 1.35rem;
+  overflow: hidden;
+  border: 1px solid rgb(221 194 244 / 18%);
+  border-radius: 1.35rem;
+  background:
+    radial-gradient(circle at 95% 5%, rgb(169 94 235 / 22%), transparent 13rem),
+    linear-gradient(145deg, rgb(107 57 151 / 28%), rgb(31 17 45 / 52%));
+  box-shadow:
+    0 1.8rem 4rem rgb(5 2 9 / 26%),
+    inset 0 1px 0 rgb(255 255 255 / 10%);
+  backdrop-filter: blur(22px);
+}
+
+.login-membership-head,
+.login-membership-head span,
+.login-progress,
+.login-reward-chip {
+  display: flex;
+  align-items: center;
+}
+
+.login-membership-head {
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.login-membership-head span {
+  gap: .45rem;
+  color: #f6edfc;
+  font-size: .7rem;
+  font-weight: 800;
+}
+
+.login-membership-head small {
+  padding: .35rem .55rem;
+  border: 1px solid rgb(221 194 244 / 18%);
+  border-radius: 999px;
+  color: #d9c4eb;
+  background: rgb(255 255 255 / 6%);
+  font-size: .5rem;
+  font-weight: 900;
+  letter-spacing: .12em;
+}
+
+.login-points {
+  display: grid;
+  gap: .1rem;
+  margin-top: 1.6rem;
+}
+
+.login-points small,
+.login-progress small,
+.login-reward-chip small {
+  color: rgb(222 207 233 / 55%);
+  font-size: .58rem;
+}
+
+.login-points strong {
+  font-size: 2.6rem;
+  line-height: 1;
+  letter-spacing: -.05em;
+}
+
+.login-progress {
+  gap: .75rem;
+  margin-top: 1.3rem;
+}
+
+.login-progress > span {
+  width: min(12rem, 48%);
+  height: .28rem;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgb(255 255 255 / 9%);
+}
+
+.login-progress i {
+  display: block;
+  width: 72%;
+  height: 100%;
+  border-radius: inherit;
+  background: #b889dd;
+}
+
+.login-reward-chip {
+  position: absolute;
+  gap: .7rem;
+  right: -1.5rem;
+  bottom: 1rem;
+  padding: .7rem .85rem;
+  border: 1px solid rgb(221 194 244 / 20%);
+  border-radius: .9rem;
+  background: rgb(31 16 45 / 88%);
+  box-shadow: 0 1rem 2.2rem rgb(4 2 7 / 28%);
+  backdrop-filter: blur(18px);
+}
+
+.login-reward-chip > i {
+  display: grid;
+  width: 2rem;
+  height: 2rem;
+  place-items: center;
+  border-radius: .65rem;
+  color: #e3c6f7;
+  background: rgb(170 102 224 / 16%);
+}
+
+.login-reward-chip > span {
+  display: grid;
+}
+
+.login-reward-chip b {
+  color: #f7effc;
+  font-size: .65rem;
+}
+
+.signin-shell-login .signin-form-panel {
+  position: relative;
+  min-height: 100vh;
+  padding: clamp(2rem, 5vw, 5rem);
+  background:
+    radial-gradient(circle at 85% 15%, rgb(128 57 184 / 10%), transparent 19rem),
+    rgb(18 10 25 / 72%) !important;
+}
+
+.signin-shell-login .signin-form-panel::before {
+  width: 20rem;
+  height: 20rem;
+  right: -11rem;
+  bottom: -10rem;
+  background: rgb(123 64 169 / 8%);
+  filter: blur(2rem);
+}
+
+.signin-shell-login .signin-form-panel > div {
+  width: min(100%, 31rem);
+  padding: clamp(1.5rem, 3.5vw, 2.25rem);
+  border: 1px solid rgb(221 194 244 / 17%);
+  border-radius: 1.5rem;
+  background:
+    linear-gradient(145deg, rgb(64 37 82 / 52%), rgb(29 18 39 / 68%));
+  box-shadow:
+    0 2rem 5rem rgb(3 1 5 / 34%),
+    inset 0 1px 0 rgb(255 255 255 / 8%);
+  backdrop-filter: blur(26px) saturate(115%);
+}
+
+.signin-shell-login .login-mascot {
+  display: none;
+}
+
+.signin-shell-login .auth-change-role {
+  margin-bottom: 1.4rem;
+  color: rgb(216 195 231 / 58%);
+}
+
+.signin-shell-login .auth-change-role:hover {
+  color: #e4c7f7;
+}
+
+.signin-shell-login .text-3xl {
+  color: #fff;
+  font-size: clamp(2rem, 3vw, 2.55rem);
+  letter-spacing: -.05em;
+}
+
+.signin-shell-login .text-\[\#7c6f84\] {
+  color: rgb(216 198 229 / 58%);
+}
+
+.signin-shell-login .selected-role-banner {
+  border-color: rgb(221 194 244 / 15%);
+  background: rgb(255 255 255 / 5%);
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 5%);
+}
+
+.signin-shell-login .selected-role-banner > i {
+  color: #e7d0f7;
+  background: rgb(151 86 201 / 18%);
+}
+
+.signin-shell-login .selected-role-banner small {
+  color: rgb(216 198 229 / 45%);
+}
+
+.signin-shell-login .selected-role-banner b {
+  color: #f6edfc;
+}
+
+.signin-shell-login .selected-role-banner button,
+.signin-shell-login form button.font-bold,
+.signin-shell-login .font-extrabold.text-\[\#7b23c7\] {
+  color: #cba3e8;
+}
+
+.signin-shell-login .field-label {
+  color: #ede2f5;
+}
+
+.signin-shell-login .field,
+.signin-shell-login .phone-field {
+  border-color: rgb(221 194 244 / 16%);
+  color: #fff;
+  background: rgb(255 255 255 / 6%);
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 5%),
+    0 .35rem 1.2rem rgb(2 1 3 / 8%);
+}
+
+.signin-shell-login .field:focus,
+.signin-shell-login .phone-field:focus-within {
+  border-color: rgb(192 143 229 / 55%);
+  background: rgb(255 255 255 / 9%);
+  box-shadow:
+    0 0 0 .22rem rgb(168 100 220 / 10%),
+    inset 0 1px 0 rgb(255 255 255 / 7%);
+}
+
+.signin-shell-login .field::placeholder,
+.signin-shell-login .phone-field input::placeholder {
+  color: rgb(218 201 230 / 38%);
+}
+
+.signin-shell-login .phone-field select,
+.signin-shell-login .phone-field input,
+.signin-shell-login .dial-code {
+  color: #f5ecfb;
+}
+
+.signin-shell-login .phone-field select {
+  border-right-color: rgb(221 194 244 / 12%);
+}
+
+.signin-shell-login .phone-field option {
+  color: #29163a;
+  background: #f4edf8;
+}
+
+.signin-shell-login .password-field button {
+  color: #c7a2e1;
+}
+
+.signin-shell-login input[type="checkbox"] {
+  accent-color: #a969d8;
+}
+
+.signin-shell-login .auth-signin-button {
+  border: 1px solid rgb(215 177 241 / 30%);
+  background: linear-gradient(110deg, #7241a0, #9a62c5 52%, #7241a0);
+  background-size: 180% 100%;
+  box-shadow:
+    0 .8rem 2rem rgb(8 3 12 / 25%),
+    inset 0 1px 0 rgb(255 255 255 / 16%);
+  animation: none;
+}
+
+.signin-shell-login .auth-signin-button:hover {
+  background: linear-gradient(110deg, #8150ae, #aa73d0 52%, #8150ae);
+  background-size: 180% 100%;
+  box-shadow:
+    0 1rem 2.3rem rgb(8 3 12 / 30%),
+    inset 0 1px 0 rgb(255 255 255 / 20%);
+}
+
+.signin-shell-login .rounded-2xl.border {
+  border-color: rgb(221 194 244 / 12%);
+  color: rgb(216 198 229 / 48%);
+  background: rgb(255 255 255 / 4%);
+}
+
+.signin-shell-login .rounded-2xl.border button {
+  color: #c89fe5;
+}
+
+.login-mobile-intro {
+  display: none;
+}
+
+@media (min-width: 721px) and (max-width: 1023px) {
+  .signin-shell-login {
+    grid-template-columns: minmax(0, .95fr) minmax(25rem, 1.05fr);
+  }
+
+  .signin-shell-login .signin-story {
+    display: block;
+    padding: 2rem;
+  }
+
+  .signin-shell-login .signin-story .text-\[clamp\(2\.8rem\,5\.7vw\,5\.5rem\)\] {
+    font-size: clamp(2.4rem, 5vw, 3.4rem);
+  }
+
+  .signin-shell-login .signin-story p {
+    font-size: .82rem;
+    line-height: 1.65;
+  }
+
+  .signin-shell-login .signin-story .mt-10 {
+    gap: .8rem;
+    font-size: .68rem;
+  }
+
+  .signin-shell-login .signin-form-panel {
+    padding: 1.5rem;
+  }
+
+  .signin-shell-login .signin-form-panel > div > .lg\:hidden {
+    display: none;
+  }
+
+  .login-reward-chip {
+    right: -.7rem;
+  }
+}
+
+@media (max-width: 720px) {
+  .signin-shell-login {
+    display: block;
+    min-height: 100vh;
+  }
+
+  .signin-shell-login .signin-story {
+    display: none;
+  }
+
+  .signin-shell-login .signin-form-panel {
+    min-height: 100vh;
+    place-items: start center;
+    padding: 1.2rem;
+  }
+
+  .signin-shell-login .signin-form-panel > div {
+    padding: 1.25rem;
+    border-radius: 1.25rem;
+  }
+
+  .signin-shell-login .signin-form-panel > div > .lg\:hidden {
+    margin-bottom: 1.5rem;
+  }
+
+  .login-mobile-intro {
+    display: block;
+    max-width: 20rem;
+    margin-top: .6rem;
+    color: rgb(216 198 229 / 52%);
+    font-size: .68rem;
+    line-height: 1.5;
+  }
+}
+
+@media (max-width: 900px) {
+  .billing-edit-lines > div {
+    grid-template-columns: 1fr;
+  }
+
+  .billing-invoice-edit-fields {
+    grid-template-columns: repeat(2, minmax(7rem, 1fr));
+  }
+
+  .billing-remove-invoice-line {
+    min-height: 2.4rem;
+  }
+}
+
+@media (max-width: 560px) {
+  .billing-invoice-edit-toolbar,
+  .billing-invoice-edit-fields {
+    grid-template-columns: 1fr;
   }
 }

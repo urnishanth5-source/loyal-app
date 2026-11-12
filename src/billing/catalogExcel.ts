@@ -40,6 +40,62 @@ const baseHeaders = [
   "Active",
 ]
 
+const uniqueCustomFields = (items: CatalogItem[], customFields: string[]) =>
+  [...customFields, ...items.flatMap((item) => Object.keys(item.customValues))]
+    .map((field) => field.trim())
+    .filter(
+      (field, index, fields) =>
+        Boolean(field) &&
+        fields.findIndex(
+          (candidate) => candidate.toLowerCase() === field.toLowerCase(),
+        ) === index,
+    )
+
+export function catalogRecordsForExport(
+  items: CatalogItem[],
+  customFields: string[],
+) {
+  const exportCustomFields = uniqueCustomFields(items, customFields)
+  return {
+    customFields: exportCustomFields,
+    records: items.map((item) => ({
+      Name: item.name,
+      "Item Type": item.itemType === "service" ? "Service" : "Product",
+      Brand: item.brand ?? "",
+      Design: item.design ?? "",
+      Size: item.size ?? "",
+      Category: item.category ?? "",
+      Stock: item.stockQuantity ?? "",
+      "HSN/SAC": item.hsnSac,
+      Unit: item.unit,
+      SKU: item.sku ?? "",
+      Barcode: item.barcode ?? "",
+      MRP: item.pricePaise / 100,
+      "GST %": item.gstRateBps / 100,
+      "Price Includes Tax": item.priceIncludesTax ? "Yes" : "No",
+      "Discount Type":
+        item.discountType === "none"
+          ? "None"
+          : item.discountType === "percent"
+            ? "Percent"
+            : "Fixed",
+      "Discount Value":
+        item.discountType === "fixed"
+          ? item.discountValue / 100
+          : item.discountValue,
+      Active: item.active ? "Yes" : "No",
+      ...Object.fromEntries(
+        exportCustomFields.map((field) => [
+          `Custom: ${field}`,
+          Object.entries(item.customValues).find(
+            ([key]) => key.toLowerCase() === field.toLowerCase(),
+          )?.[1] ?? "",
+        ]),
+      ),
+    })),
+  }
+}
+
 const supportedGstRates = new Set([0, 5, 12, 18, 28])
 
 const text = (value: unknown) => String(value ?? "").trim()
@@ -277,6 +333,60 @@ export async function downloadCatalogTemplate(customFields: string[]) {
   instructionSheet.getColumn(1).width = 32
   instructionSheet.getColumn(2).width = 64
   await downloadWorkbook(workbook, "perklyn-catalog-template.xlsx")
+}
+
+export async function downloadCatalogExport(
+  items: CatalogItem[],
+  customFields: string[],
+) {
+  const { customFields: exportCustomFields, records } =
+    catalogRecordsForExport(items, customFields)
+  const headers = [
+    ...baseHeaders,
+    ...exportCustomFields.map((field) => `Custom: ${field}`),
+  ]
+  const workbook = new Workbook()
+  const sheet = workbook.addWorksheet("Products", {
+    views: [{ state: "frozen", ySplit: 1 }],
+  })
+  sheet.addRow(headers)
+  records.forEach((record) =>
+    sheet.addRow(headers.map((header) => record[header as keyof typeof record])),
+  )
+  const headerRow = sheet.getRow(1)
+  headerRow.font = { bold: true, color: { argb: "FFFFFFFF" } }
+  headerRow.fill = {
+    type: "pattern",
+    pattern: "solid",
+    fgColor: { argb: "FF20352F" },
+  }
+  headerRow.alignment = { vertical: "middle" }
+  headerRow.height = 24
+  sheet.autoFilter = {
+    from: { row: 1, column: 1 },
+    to: { row: 1, column: headers.length },
+  }
+  sheet.columns.forEach((column, index) => {
+    const header = headers[index]
+    const contentWidth = records.reduce(
+      (width, record) =>
+        Math.max(
+          width,
+          String(record[header as keyof typeof record] ?? "").length,
+        ),
+      header.length,
+    )
+    column.width = Math.max(12, Math.min(36, contentWidth + 2))
+    if (header === "SKU" || header === "Barcode" || header === "HSN/SAC") {
+      column.numFmt = "@"
+    }
+    if (header === "MRP") {
+      column.numFmt = "₹#,##0.00"
+    }
+    if (header === "Discount Value") column.numFmt = "#,##0.00"
+  })
+  const date = new Date().toISOString().slice(0, 10)
+  await downloadWorkbook(workbook, `perklyn-catalog-${date}.xlsx`)
 }
 
 export async function downloadCatalogErrorWorkbook(

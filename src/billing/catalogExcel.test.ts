@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest"
 import { Workbook } from "exceljs"
 import {
   MAX_CATALOG_IMPORT_ROWS,
+  catalogRecordsForExport,
   catalogRowsFromRecords,
   parseCatalogWorkbook,
 } from "./catalogExcel"
@@ -105,6 +106,50 @@ describe("catalog Excel import", () => {
       barcode: "000987",
       pricePaise: 129900,
       gstRateBps: 1200,
+    })
+  })
+})
+
+describe("catalog Excel export", () => {
+  it("exports import-compatible values and all stored custom fields", () => {
+    const result = catalogRecordsForExport(
+      [
+        {
+          id: "item-1",
+          businessId: 1,
+          itemType: "product",
+          name: "Cotton Shirt",
+          brand: "Perklyn",
+          category: "Shirts",
+          sku: "SKU-001",
+          barcode: "0012345",
+          hsnSac: "6205",
+          unit: "piece",
+          pricePaise: 99950,
+          gstRateBps: 500,
+          priceIncludesTax: true,
+          stockQuantity: 12,
+          customValues: { Season: "Summer", Material: "Cotton" },
+          discountType: "fixed",
+          discountValue: 10000,
+          active: false,
+        },
+      ],
+      ["Season"],
+    )
+
+    expect(result.customFields).toEqual(["Season", "Material"])
+    expect(result.records[0]).toMatchObject({
+      Name: "Cotton Shirt",
+      Barcode: "0012345",
+      MRP: 999.5,
+      "GST %": 5,
+      "Price Includes Tax": "Yes",
+      "Discount Type": "Fixed",
+      "Discount Value": 100,
+      Active: "No",
+      "Custom: Season": "Summer",
+      "Custom: Material": "Cotton",
     })
   })
 })

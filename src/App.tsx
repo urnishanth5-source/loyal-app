@@ -1007,7 +1007,9 @@ function SignIn({
 
   return (
     <main
-      className="signin-shell"
+      className={`signin-shell ${
+        !showRecovery && !showSignup ? "signin-shell-login" : ""
+      }`}
       onPointerDown={() => setMascotBlink((blink) => blink + 1)}
     >
       <section className="signin-story">
@@ -1025,6 +1027,38 @@ function SignIn({
               Connect with the businesses you love and keep every point, perk,
               and reward in one beautifully simple place.
             </p>
+            {!showRecovery && !showSignup && (
+              <div className="login-loyalty-visual">
+                <div className="login-membership-card">
+                  <div className="login-membership-head">
+                    <span>
+                      <Icon name="spark" size={16} />
+                      Perklyn membership
+                    </span>
+                    <small>PLATINUM</small>
+                  </div>
+                  <div className="login-points">
+                    <small>Available points</small>
+                    <strong>2,480</strong>
+                  </div>
+                  <div className="login-progress">
+                    <span>
+                      <i />
+                    </span>
+                    <small>520 points to your next reward</small>
+                  </div>
+                </div>
+                <div className="login-reward-chip">
+                  <i>
+                    <Icon name="gift" size={18} />
+                  </i>
+                  <span>
+                    <small>Reward unlocked</small>
+                    <b>Premium member benefit</b>
+                  </span>
+                </div>
+              </div>
+            )}
             <div className="mt-10 flex flex-wrap gap-x-8 gap-y-4 text-sm font-semibold text-white/90">
               <span className="flex items-center gap-2">
                 <i className="check-dot">
@@ -1056,6 +1090,11 @@ function SignIn({
         <div className="w-full max-w-[31rem]">
           <div className="mb-10 lg:hidden">
             <Brand />
+            {!showRecovery && !showSignup && (
+              <div className="login-mobile-intro">
+                Premium loyalty, points, and rewards in one place.
+              </div>
+            )}
           </div>
           <button
             type="button"
@@ -1128,7 +1167,7 @@ function SignIn({
               ? "Reset your password"
               : showSignup
                 ? "Create your account"
-                : `${role === "customer" ? "Customer" : "Business"} sign in`}
+                : "Welcome back"}
           </div>
           <p className="mt-3 text-[#7c6f84]">
             {showRecovery

@@ -290,6 +290,20 @@ const historicalInvoicePayments = (sale: any): BillingPayment[] =>
     reference: payment.reference,
   }))
 
+const invoiceItemToCartLine = (item: any): CartLine => ({
+  id: item.id,
+  catalogItemId: item.catalog_item_id ?? undefined,
+  itemType: item.item_type === "service" ? "service" : "product",
+  name: item.name,
+  hsnSac: item.hsn_sac,
+  unit: item.unit,
+  quantity: Number(item.quantity),
+  unitPricePaise: Number(item.unit_price_paise),
+  priceIncludesTax: item.price_includes_tax !== false,
+  gstRateBps: Number(item.gst_rate_bps) as GstRateBps,
+  lineDiscountPaise: Number(item.line_discount_paise),
+})
+
 const automaticDiscountPaise = (
   item: Pick<CartLine, "unitPricePaise" | "automaticDiscountType" | "automaticDiscountValue">,
   quantity: number,
@@ -506,6 +520,7 @@ export default function BillingWorkspace({
   >([])
   const [catalogImportFileName, setCatalogImportFileName] = useState("")
   const [catalogImportProgress, setCatalogImportProgress] = useState("")
+  const [catalogExporting, setCatalogExporting] = useState(false)
   const [catalogDraft, setCatalogDraft] = useState(() =>
     emptyCatalogItem(merchant.id),
   )
@@ -574,7 +589,8 @@ export default function BillingWorkspace({
   const [salesRange, setSalesRange] = useState<SalesRange>("month")
   const [selectedSale, setSelectedSale] = useState<any>(null)
   const [editingInvoice, setEditingInvoice] = useState(false)
-  const [invoiceEditLines, setInvoiceEditLines] = useState<any[]>([])
+  const [invoiceEditLines, setInvoiceEditLines] = useState<CartLine[]>([])
+  const [invoiceEditDiscount, setInvoiceEditDiscount] = useState("")
   const [lastInvoice, setLastInvoice] = useState<BillingInvoiceSummary | null>(
     null,
   )
@@ -603,6 +619,17 @@ export default function BillingWorkspace({
       ),
     [cart, combinedCartDiscountPaise, settings, placeOfSupply],
   )
+  const invoiceEditTotals = useMemo(() => {
+    const invoice = selectedSale?.invoice
+    if (!invoice)
+      return calculateBillingTotals([], 0, "", "")
+    return calculateBillingTotals(
+      invoiceEditLines,
+      rupeesToPaise(invoiceEditDiscount),
+      String(invoice.seller_snapshot?.stateCode ?? ""),
+      String(invoice.place_of_supply_code ?? ""),
+    )
+  }, [invoiceEditDiscount, invoiceEditLines, selectedSale])
   const projectedPoints =
     customer && settings
       ? Math.floor((totals.totalPaise * settings.pointsPerRupee) / 100)
@@ -782,16 +809,20 @@ export default function BillingWorkspace({
     }
   }, [invoices, salesRange])
 
-  const loadCatalog = async () => {
+  const fetchAllCatalogItems = async () => {
     const items: CatalogItem[] = []
     const pageSize = 1000
-    for (let offset = 0; offset < 50000; offset += pageSize) {
+    for (let offset = 0; ; offset += pageSize) {
       const result = await apiRequest<{ items: CatalogItem[] }>(
         `/billing/catalog?businessId=${merchant.id}&status=all&offset=${offset}&limit=${pageSize}`,
       )
       items.push(...result.items.map((item) => normalizeCatalogItem(item)))
       if (result.items.length < pageSize) break
     }
+    return items
+  }
+  const loadCatalog = async () => {
+    const items = await fetchAllCatalogItems()
     setCatalog(items)
   }
   const loadInvoices = async () => {
@@ -1107,6 +1138,28 @@ export default function BillingWorkspace({
     await downloadCatalogTemplate(settingsDraft.catalogCustomFields)
   }
 
+  const exportCatalogItems = async () => {
+    setCatalogExporting(true)
+    setMessage("")
+    try {
+      const items = await fetchAllCatalogItems()
+      const { downloadCatalogExport } = await import("./billing/catalogExcel")
+      await downloadCatalogExport(items, settingsDraft.catalogCustomFields)
+      setCatalog(items)
+      setMessage(
+        `${items.length} catalog item${items.length === 1 ? "" : "s"} exported.`,
+      )
+    } catch (error) {
+      setMessage(
+        error instanceof Error
+          ? error.message
+          : "Unable to export catalog items.",
+      )
+    } finally {
+      setCatalogExporting(false)
+    }
+  }
+
   const selectCatalogImportFile = async (
     event: ChangeEvent<HTMLInputElement>,
   ) => {
@@ -1413,12 +1466,9 @@ export default function BillingWorkspace({
         `/billing/invoices/${id}?businessId=${merchant.id}`,
       )
       setSelectedSale(result)
-      setInvoiceEditLines(
-        result.items.map((item: any) => ({
-          id: item.id,
-          quantity: Number(item.quantity),
-          unitPricePaise: Number(item.unit_price_paise),
-        })),
+      setInvoiceEditLines(result.items.map(invoiceItemToCartLine))
+      setInvoiceEditDiscount(
+        String(Number(result.invoice.cart_discount_paise ?? 0) / 100 || ""),
       )
       setEditingInvoice(edit)
     } catch (error) {
@@ -1430,8 +1480,29 @@ export default function BillingWorkspace({
     }
   }
 
+  const beginInvoiceEditing = () => {
+    if (!selectedSale?.invoice) return
+    setInvoiceEditLines(selectedSale.items.map(invoiceItemToCartLine))
+    setInvoiceEditDiscount(
+      String(Number(selectedSale.invoice.cart_discount_paise ?? 0) / 100 || ""),
+    )
+    setEditingInvoice(true)
+  }
+
+  const addInvoiceCatalogItem = (catalogItemId: string) => {
+    const item = catalog.find(
+      (candidate) => candidate.id === catalogItemId && candidate.active,
+    )
+    if (!item) return
+    setInvoiceEditLines((lines) => [...lines, toCartLine(item)])
+  }
+
   const saveInvoiceEdits = async () => {
     if (!selectedSale?.invoice) return
+    if (invoiceEditLines.length === 0) {
+      setMessage("An invoice must contain at least one item.")
+      return
+    }
     setBusy(true)
     setMessage("")
     try {
@@ -1440,6 +1511,7 @@ export default function BillingWorkspace({
         body: JSON.stringify({
           businessId: merchant.id,
           lines: invoiceEditLines,
+          cartDiscountPaise: rupeesToPaise(invoiceEditDiscount),
         }),
       })
       setEditingInvoice(false)
@@ -2193,6 +2265,13 @@ export default function BillingWorkspace({
                     Import Excel
                   </WorkspaceButton>
                   <WorkspaceButton
+                    secondary
+                    disabled={catalogExporting}
+                    onClick={exportCatalogItems}
+                  >
+                    {catalogExporting ? "Exporting..." : "Export items"}
+                  </WorkspaceButton>
+                  <WorkspaceButton
                     onClick={() => {
                       cancelCatalogImport()
                       setCatalogDraft(emptyCatalogItem(merchant.id))
@@ -2867,7 +2946,9 @@ export default function BillingWorkspace({
             onMouseDown={() => setSelectedSale(null)}
           >
             <section
-              className="billing-detail"
+              className={`billing-detail ${
+                editingInvoice ? "billing-detail-editing" : ""
+              }`}
               onMouseDown={(event) => event.stopPropagation()}
             >
               <div className="billing-section-head">
@@ -2898,92 +2979,277 @@ export default function BillingWorkspace({
                   </b>
                 </span>
               </div>
-              <div
-                className={`billing-detail-lines ${
-                  editingInvoice ? "billing-edit-lines" : ""
-                }`}
-              >
-                {selectedSale.items.map((item: any, index: number) => (
-                  <div key={item.id}>
-                    <span>
-                      <b>{item.name}</b>
-                      <small>
-                        {item.hsn_sac} · {item.quantity} {item.unit} · GST{" "}
-                        {item.gst_rate_bps / 100}%
-                      </small>
-                    </span>
-                    {editingInvoice ? (
-                      <div className="billing-invoice-edit-fields">
-                        <label>
-                          Quantity
-                          <input
-                            type="number"
-                            min="0.001"
-                            step="0.001"
-                            value={invoiceEditLines[index]?.quantity ?? ""}
-                            onChange={(event) =>
-                              setInvoiceEditLines((lines) =>
-                                lines.map((line, lineIndex) =>
-                                  lineIndex === index
-                                    ? {
-                                        ...line,
-                                        quantity: Number(event.target.value),
-                                      }
-                                    : line,
-                                ),
-                              )
-                            }
-                          />
-                        </label>
-                        <label>
-                          Unit price ₹
-                          <input
-                            type="number"
-                            min="0"
-                            step="0.01"
-                            value={
-                              (invoiceEditLines[index]?.unitPricePaise ?? 0) /
-                                100 || ""
-                            }
-                            onChange={(event) =>
-                              setInvoiceEditLines((lines) =>
-                                lines.map((line, lineIndex) =>
-                                  lineIndex === index
-                                    ? {
-                                        ...line,
-                                        unitPricePaise: rupeesToPaise(
-                                          event.target.value,
-                                        ),
-                                      }
-                                    : line,
-                                ),
-                              )
-                            }
-                          />
-                        </label>
-                      </div>
-                    ) : (
-                      <strong>{formatInr(item.total_paise)}</strong>
-                    )}
+              {editingInvoice ? (
+                <>
+                  <div className="billing-invoice-edit-toolbar">
+                    <label>
+                      Add catalog item
+                      <select
+                        className="field"
+                        defaultValue=""
+                        onChange={(event) => {
+                          addInvoiceCatalogItem(event.target.value)
+                          event.currentTarget.value = ""
+                        }}
+                      >
+                        <option value="">Choose an active item</option>
+                        {catalog
+                          .filter((item) => item.active)
+                          .map((item) => (
+                            <option key={item.id} value={item.id}>
+                              {item.name} · {formatInr(item.pricePaise)}
+                            </option>
+                          ))}
+                      </select>
+                    </label>
+                    <label>
+                      Bill discount ₹
+                      <input
+                        className="field"
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        value={invoiceEditDiscount}
+                        onChange={(event) =>
+                          setInvoiceEditDiscount(event.target.value)
+                        }
+                      />
+                    </label>
                   </div>
-                ))}
-              </div>
+                  <div className="billing-detail-lines billing-edit-lines">
+                    {invoiceEditLines.map((line, index) => (
+                      <div key={line.id}>
+                        <span>
+                          <b>{line.name}</b>
+                          <small>
+                            {line.hsnSac} · GST {line.gstRateBps / 100}% ·{" "}
+                            {line.priceIncludesTax
+                              ? "tax inclusive"
+                              : "tax exclusive"}
+                          </small>
+                        </span>
+                        <div className="billing-invoice-edit-fields">
+                          <label>
+                            Quantity
+                            <input
+                              type="number"
+                              min="0.001"
+                              step="0.001"
+                              value={line.quantity}
+                              onChange={(event) => {
+                                const quantity = Number(event.target.value)
+                                setInvoiceEditLines((lines) =>
+                                  lines.map((item, lineIndex) =>
+                                    lineIndex === index
+                                      ? {
+                                          ...item,
+                                          quantity,
+                                          lineDiscountPaise:
+                                            item.automaticDiscountType
+                                              ? automaticDiscountPaise(
+                                                  item,
+                                                  quantity,
+                                                )
+                                              : item.lineDiscountPaise,
+                                        }
+                                      : item,
+                                  ),
+                                )
+                              }}
+                            />
+                          </label>
+                          <label>
+                            Unit price ₹
+                            <input
+                              type="number"
+                              min="0"
+                              step="0.01"
+                              value={line.unitPricePaise / 100 || ""}
+                              onChange={(event) =>
+                                setInvoiceEditLines((lines) =>
+                                  lines.map((item, lineIndex) =>
+                                    lineIndex === index
+                                      ? {
+                                          ...item,
+                                          unitPricePaise: rupeesToPaise(
+                                            event.target.value,
+                                          ),
+                                          automaticDiscountType: undefined,
+                                          automaticDiscountValue: undefined,
+                                        }
+                                      : item,
+                                  ),
+                                )
+                              }
+                            />
+                          </label>
+                          <label>
+                            Line amount ₹
+                            <input
+                              type="number"
+                              min="0"
+                              step="0.01"
+                              value={
+                                (line.unitPricePaise * line.quantity) / 100 || ""
+                              }
+                              onChange={(event) => {
+                                const amountPaise = rupeesToPaise(
+                                  event.target.value,
+                                )
+                                setInvoiceEditLines((lines) =>
+                                  lines.map((item, lineIndex) =>
+                                    lineIndex === index
+                                      ? {
+                                          ...item,
+                                          unitPricePaise:
+                                            item.quantity > 0
+                                              ? Math.round(
+                                                  amountPaise / item.quantity,
+                                                )
+                                              : 0,
+                                          automaticDiscountType: undefined,
+                                          automaticDiscountValue: undefined,
+                                        }
+                                      : item,
+                                  ),
+                                )
+                              }}
+                            />
+                          </label>
+                          <label>
+                            Item discount ₹
+                            <input
+                              type="number"
+                              min="0"
+                              step="0.01"
+                              value={line.lineDiscountPaise / 100 || ""}
+                              onChange={(event) =>
+                                setInvoiceEditLines((lines) =>
+                                  lines.map((item, lineIndex) =>
+                                    lineIndex === index
+                                      ? {
+                                          ...item,
+                                          lineDiscountPaise: rupeesToPaise(
+                                            event.target.value,
+                                          ),
+                                          automaticDiscountType: undefined,
+                                          automaticDiscountValue: undefined,
+                                        }
+                                      : item,
+                                  ),
+                                )
+                              }
+                            />
+                          </label>
+                          <button
+                            type="button"
+                            className="billing-remove-invoice-line"
+                            disabled={invoiceEditLines.length === 1}
+                            onClick={() =>
+                              setInvoiceEditLines((lines) =>
+                                lines.filter(
+                                  (_, lineIndex) => lineIndex !== index,
+                                ),
+                              )
+                            }
+                          >
+                            Remove
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </>
+              ) : (
+                <div className="billing-detail-lines">
+                  {selectedSale.items.map((item: any) => (
+                    <div key={item.id}>
+                      <span>
+                        <b>{item.name}</b>
+                        <small>
+                          {item.hsn_sac} · {item.quantity} {item.unit} · GST{" "}
+                          {item.gst_rate_bps / 100}%
+                        </small>
+                      </span>
+                      <strong>{formatInr(item.total_paise)}</strong>
+                    </div>
+                  ))}
+                </div>
+              )}
               <div className="billing-totals">
+                {editingInvoice && (
+                  <>
+                    <span>
+                      Total MRP{" "}
+                      <b>{formatInr(invoiceEditTotals.subtotalPaise)}</b>
+                    </span>
+                    {invoiceEditTotals.lineDiscountPaise > 0 && (
+                      <span>
+                        Item discount{" "}
+                        <b>
+                          -{formatInr(invoiceEditTotals.lineDiscountPaise)}
+                        </b>
+                      </span>
+                    )}
+                    {invoiceEditTotals.cartDiscountPaise > 0 && (
+                      <span>
+                        Bill discount{" "}
+                        <b>
+                          -{formatInr(invoiceEditTotals.cartDiscountPaise)}
+                        </b>
+                      </span>
+                    )}
+                  </>
+                )}
                 <span>
                   Taxable
-                  <b>{formatInr(selectedSale.invoice.taxable_paise)}</b>
+                  <b>
+                    {formatInr(
+                      editingInvoice
+                        ? invoiceEditTotals.taxablePaise
+                        : selectedSale.invoice.taxable_paise,
+                    )}
+                  </b>
                 </span>
                 <span>
-                  CGST <b>{formatInr(selectedSale.invoice.cgst_paise)}</b>
+                  CGST{" "}
+                  <b>
+                    {formatInr(
+                      editingInvoice
+                        ? invoiceEditTotals.cgstPaise
+                        : selectedSale.invoice.cgst_paise,
+                    )}
+                  </b>
                 </span>
                 <span>
-                  SGST <b>{formatInr(selectedSale.invoice.sgst_paise)}</b>
+                  SGST{" "}
+                  <b>
+                    {formatInr(
+                      editingInvoice
+                        ? invoiceEditTotals.sgstPaise
+                        : selectedSale.invoice.sgst_paise,
+                    )}
+                  </b>
                 </span>
                 <span>
-                  IGST <b>{formatInr(selectedSale.invoice.igst_paise)}</b>
+                  IGST{" "}
+                  <b>
+                    {formatInr(
+                      editingInvoice
+                        ? invoiceEditTotals.igstPaise
+                        : selectedSale.invoice.igst_paise,
+                    )}
+                  </b>
                 </span>
                 <strong>
-                  Total <b>{formatInr(selectedSale.invoice.total_paise)}</b>
+                  Total{" "}
+                  <b>
+                    {formatInr(
+                      editingInvoice
+                        ? invoiceEditTotals.totalPaise
+                        : selectedSale.invoice.total_paise,
+                    )}
+                  </b>
                 </strong>
               </div>
               {selectedSale.creditNotes.length > 0 && (
@@ -3013,7 +3279,7 @@ export default function BillingWorkspace({
                   <WorkspaceButton
                     secondary
                     disabled={selectedSale.invoice.status !== "paid"}
-                    onClick={() => setEditingInvoice(true)}
+                    onClick={beginInvoiceEditing}
                   >
                     Edit invoice
                   </WorkspaceButton>
