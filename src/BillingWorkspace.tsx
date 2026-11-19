@@ -1806,11 +1806,6 @@ export default function BillingWorkspace({
                           <button
                             key={item.id}
                             className="billing-product"
-                            disabled={
-                              item.itemType === "product" &&
-                              item.stockQuantity != null &&
-                              item.stockQuantity <= 0
-                            }
                             onClick={() =>
                               setCart((lines) => [...lines, toCartLine(item)])
                             }
@@ -2572,7 +2567,6 @@ export default function BillingWorkspace({
                     <input
                       className="field"
                       type="number"
-                      min="0"
                       step="0.001"
                       value={catalogDraft.stockQuantity ?? ""}
                       onChange={(event) =>

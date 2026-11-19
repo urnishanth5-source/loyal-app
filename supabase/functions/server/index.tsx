@@ -1677,7 +1677,7 @@ const catalogRow = (
     stock_quantity:
       body.stockQuantity === null || body.stockQuantity === ""
         ? null
-        : Math.max(0, Math.round(Number(body.stockQuantity) * 1000) / 1000),
+        : Math.round(Number(body.stockQuantity) * 1000) / 1000,
     custom_values:
       body.customValues && typeof body.customValues === "object"
         ? Object.fromEntries(

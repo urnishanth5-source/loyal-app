@@ -181,9 +181,9 @@ export function catalogRowsFromRecords(
       rowErrors.push("Item Type must be Product or Service.")
     if (
       stockQuantity != null &&
-      (!Number.isFinite(stockQuantity) || stockQuantity < 0)
+      !Number.isFinite(stockQuantity)
     )
-      rowErrors.push("Stock must be blank or zero or more.")
+      rowErrors.push("Stock must be blank or a number.")
     if (
       discountTypeValue &&
       !["none", "percent", "fixed"].includes(discountTypeValue)
@@ -323,7 +323,10 @@ export async function downloadCatalogTemplate(customFields: string[]) {
     ["Price Includes Tax / Active", "Yes or No; blank defaults to Yes"],
     ["Discount Type", "None, Percent, or Fixed"],
     ["Discount Value", "Percentage number or fixed rupee amount per unit"],
-    ["Stock", "Leave blank when stock is not tracked"],
+    [
+      "Stock",
+      "Leave blank when stock is not tracked; negative balances are allowed",
+    ],
     ["Barcode", "Format this Excel column as Text to preserve leading zeros"],
     ["Maximum rows", "10,000 products per import"],
   ]

@@ -59,6 +59,24 @@ describe("catalog Excel import", () => {
     expect(result.errors).toEqual([])
   })
 
+  it("accepts negative stock balances", () => {
+    const result = catalogRowsFromRecords(
+      [
+        {
+          Name: "Backordered Shirt",
+          "HSN/SAC": "6205",
+          MRP: 500,
+          "GST %": 5,
+          Stock: -3,
+        },
+      ],
+      [],
+    )
+
+    expect(result.errors).toEqual([])
+    expect(result.rows[0].item.stockQuantity).toBe(-3)
+  })
+
   it("rejects duplicate barcodes within the workbook", () => {
     const result = catalogRowsFromRecords(
       [
