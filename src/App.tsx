@@ -155,7 +155,7 @@ function mergeMembershipBusinesses(
   return JSON.stringify(merged) === JSON.stringify(current) ? current : merged
 }
 
-function Icon({ name, size = 20 }: { name: string size?: number }) {
+function Icon({ name, size = 20 }: { name: string; size?: number }) {
   const paths: Record<string, ReactNode> = {
     arrow: (
       <>
@@ -868,7 +868,7 @@ function SignIn({
       password: string
       authorizationCode: string
     },
-  ) => Promise<{ ok: boolean message?: string }>
+  ) => Promise<{ ok: boolean; message?: string }>
 }) {
   const [role, setRole] = useState<Role | null>(null)
   const [showSignup, setShowSignup] = useState(false)
@@ -2196,7 +2196,7 @@ function NfcManager({
     setBusy(true)
     setMessage("")
     try {
-      const result = await apiRequest<{ issue: NfcIssue serverNow: string }>(
+      const result = await apiRequest<{ issue: NfcIssue; serverNow: string }>(
         "/nfc/issues",
         {
           method: "POST",
@@ -2220,7 +2220,7 @@ function NfcManager({
     if (!issue) return
     setBusy(true)
     try {
-      const result = await apiRequest<{ issue: NfcIssue serverNow: string }>(
+      const result = await apiRequest<{ issue: NfcIssue; serverNow: string }>(
         `/nfc/issues/${issue.id}/cancel`,
         { method: "POST" },
       )
@@ -2620,7 +2620,12 @@ type RfidScan = {
     status: string
     lastScannedAt: string
   }
-  customer: { id: string name: string maskedPhone: string points: number }
+  customer: {
+    id: string
+    name: string
+    maskedPhone: string
+    points: number
+  }
   rewards: Array<Reward & { available?: boolean }>
   lastTransaction?: Activity | null
 }
@@ -3840,7 +3845,7 @@ function BusinessDashboard({
     setVerifyResult(null)
     try {
       const result = await apiRequest<{
-        claim: { customerName: string title: string points: number }
+        claim: { customerName: string; title: string; points: number }
       }>("/verify-claim", {
         method: "POST",
         body: JSON.stringify({ code: verifyCode }),
@@ -4003,7 +4008,7 @@ function BusinessDashboard({
   const syncNfcReporting = async () => {
     try {
       const result = await apiRequest<{
-        state: { customers?: Customer[] activities?: Activity[] } | null
+        state: { customers?: Customer[]; activities?: Activity[] } | null
       }>("/me")
       if (result.state?.customers) setCustomers(result.state.customers)
       if (result.state?.activities) setActivities(result.state.activities)
@@ -5209,7 +5214,7 @@ function CustomerDashboard({
     try {
       const result = await apiRequest<{
         business: Business
-        membership: { points: number reward: string }
+        membership: { points: number; reward: string }
       }>("/join-business", {
         method: "POST",
         body: JSON.stringify({ businessId: business.id }),
@@ -5857,7 +5862,12 @@ function PerklynApp() {
 
   const loadAccount = async () => {
     const result = await apiRequest<{
-      profile: { role: Role name: string phone: string businessName?: string }
+      profile: {
+        role: Role
+        name: string
+        phone: string
+        businessName?: string
+      }
       state: {
         businesses?: Business[]
         claims?: Claim[]
@@ -6069,7 +6079,7 @@ function PerklynApp() {
     const syncBusinessActivity = async () => {
       try {
         const result = await apiRequest<{
-          state: { customers?: Customer[] activities?: Activity[] } | null
+          state: { customers?: Customer[]; activities?: Activity[] } | null
         }>("/me")
         const nextCustomers = result.state?.customers ?? []
         const nextActivities = result.state?.activities ?? []

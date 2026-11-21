@@ -1373,10 +1373,16 @@ export default function BillingWorkspace({
     }
     const popup = window.open("", "_blank", "width=520,height=420")
     if (!popup) return
+    const safeName = (catalogDraft.name || "Catalog item")
+      .replaceAll("&", "&amp;")
+      .replaceAll("<", "&lt;")
+      .replaceAll(">", "&gt;")
+      .replaceAll('"', "&quot;")
+      .replaceAll("'", "&#039;")
     popup.document.write(`
-      <html><head><title>${catalogDraft.name || "Barcode"}</title>
+      <html><head><title>${safeName}</title>
       <style>@page{size:60mm 35mm;margin:2mm}body{display:grid;place-items:center;margin:0;font:12px sans-serif;text-align:center}b{display:block;margin-bottom:4px}svg{max-width:56mm}</style>
-      </head><body><div><b>${catalogDraft.name || "Catalog item"}</b>${svg.outerHTML}</div></body></html>`)
+      </head><body><div><b>${safeName}</b>${svg.outerHTML}</div></body></html>`)
     popup.document.close()
     popup.focus()
     popup.print()

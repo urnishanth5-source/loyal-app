@@ -109,11 +109,12 @@ describe("catalog Excel import", () => {
     worksheet.addRow(["Name", "HSN/SAC", "MRP", "GST %", "Barcode"])
     worksheet.addRow(["Linen Shirt", "6205", 1299, 12, "000987"])
     const buffer = await workbook.xlsx.writeBuffer()
+    const bytes = buffer as unknown as Uint8Array
 
     const result = await parseCatalogWorkbook(
-      buffer.buffer.slice(
-        buffer.byteOffset,
-        buffer.byteOffset + buffer.byteLength,
+      bytes.buffer.slice(
+        bytes.byteOffset,
+        bytes.byteOffset + bytes.byteLength,
       ) as ArrayBuffer,
       [],
     )

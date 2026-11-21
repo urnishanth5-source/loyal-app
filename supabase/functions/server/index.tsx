@@ -1,6 +1,5 @@
 import { Hono } from "npm:hono"
 import { cors } from "npm:hono/cors"
-import { logger } from "npm:hono/logger"
 import { createClient } from "jsr:@supabase/supabase-js@2.49.8"
 import webpush from "npm:web-push@3.6.7"
 import * as kv from "./kv_store.tsx"
@@ -13,6 +12,11 @@ const adminClient = () =>
     Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
   )
 const normalizePhone = (phone: string) => phone.replace(/\D/g, "")
+const cleanText = (value: unknown, maxLength: number) =>
+  String(value ?? "")
+    .replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g, "")
+    .trim()
+    .slice(0, maxLength)
 const legacyAccountEmail = (phone: string, role: string) =>
   `${role}_phone_${normalizePhone(phone)}@loyaltyhub.local`
 
@@ -74,6 +78,54 @@ const hashText = async (value: string) => {
   return Array.from(new Uint8Array(digest))
     .map((byte) => byte.toString(16).padStart(2, "0"))
     .join("")
+}
+
+const secureTextEqual = async (left: string, right: string) => {
+  const [leftHash, rightHash] = await Promise.all([
+    hashText(left),
+    hashText(right),
+  ])
+  let difference = leftHash.length ^ rightHash.length
+  const length = Math.max(leftHash.length, rightHash.length)
+  for (let index = 0; index < length; index += 1)
+    difference |=
+      (leftHash.charCodeAt(index) || 0) ^ (rightHash.charCodeAt(index) || 0)
+  return difference === 0
+}
+
+const sanitizeStateValue = (
+  value: unknown,
+  depth = 0,
+  seen = new WeakSet<object>(),
+): unknown => {
+  if (depth > 8) throw new Error("Account data is nested too deeply.")
+  if (value == null || typeof value === "boolean") return value
+  if (typeof value === "number") return Number.isFinite(value) ? value : 0
+  if (typeof value === "string") return cleanText(value, 5_000)
+  if (typeof value !== "object")
+    throw new Error("Account data contains an unsupported value.")
+  if (seen.has(value))
+    throw new Error("Account data contains a circular value.")
+  seen.add(value)
+  if (Array.isArray(value)) {
+    if (value.length > 500)
+      throw new Error("Account data contains too many items.")
+    const sanitized = value.map((item) =>
+      sanitizeStateValue(item, depth + 1, seen),
+    )
+    seen.delete(value)
+    return sanitized
+  }
+  const entries = Object.entries(value)
+  if (entries.length > 100)
+    throw new Error("Account data contains too many fields.")
+  const sanitized: Record<string, unknown> = {}
+  for (const [key, item] of entries) {
+    if (["__proto__", "constructor", "prototype"].includes(key)) continue
+    sanitized[cleanText(key, 80)] = sanitizeStateValue(item, depth + 1, seen)
+  }
+  seen.delete(value)
+  return sanitized
 }
 
 const businessStatus = async (businessId: number) =>
@@ -164,7 +216,7 @@ const sendPushesToUser = async (userId: string, notification: any) => {
   let removed = 0
   for (let start = 0; start < subscriptions.length; start += 25) {
     const batch = subscriptions.slice(start, start + 25)
-    const results = await Promise.allSettled(
+    await Promise.allSettled(
       batch.map(async (stored: any) => {
         try {
           await webpush.sendNotification(
@@ -191,13 +243,6 @@ const sendPushesToUser = async (userId: string, notification: any) => {
         }
       }),
     )
-    results.forEach((result) => {
-      if (result.status === "rejected")
-        console.log(
-          "Push delivery failed",
-          result.reason?.statusCode ?? "unknown",
-        )
-    })
   }
   return { attempted: subscriptions.length, delivered, removed }
 }
@@ -219,10 +264,7 @@ const dispatchNotification = async (
 const background = (promise: Promise<unknown>) => {
   const runtime = (globalThis as any).EdgeRuntime
   if (runtime?.waitUntil) runtime.waitUntil(promise)
-  else
-    promise.catch((error) =>
-      console.log("Background notification failed", error),
-    )
+  else promise.catch(() => {})
 }
 
 const indexBusinessMember = async (
@@ -542,26 +584,75 @@ const getBusinessAudience = async (businessId: number) => {
   return audience
 }
 
-app.use("*", logger(console.log))
+const configuredOrigins = (Deno.env.get("ALLOWED_ORIGINS") ?? "")
+  .split(",")
+  .map((origin) => origin.trim())
+  .filter(Boolean)
+const allowedOrigins = new Set([
+  "https://www.perklyn.in",
+  "https://perklyn.in",
+  ...configuredOrigins,
+])
+const isAllowedOrigin = (origin: string) => {
+  if (allowedOrigins.has(origin)) return true
+  try {
+    const url = new URL(origin)
+    return (
+      ["localhost", "127.0.0.1"].includes(url.hostname) ||
+      url.hostname.endsWith(".figma.site")
+    )
+  } catch {
+    return false
+  }
+}
+const requestIdentifier = (c: any) =>
+  cleanText(
+    c.req.header("cf-connecting-ip") ||
+      c.req.header("x-real-ip") ||
+      c.req.header("x-forwarded-for")?.split(",")[0] ||
+      "unknown",
+    80,
+  )
+
 app.use(
   "/*",
   cors({
-    origin: "*",
+    origin: (origin) => (isAllowedOrigin(origin) ? origin : undefined),
     allowHeaders: ["Content-Type", "Authorization", "X-Admin-Token"],
     allowMethods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-    exposeHeaders: ["Content-Length"],
     maxAge: 600,
   }),
 )
+app.use("*", async (c, next) => {
+  const origin = c.req.header("Origin")
+  if (origin && !isAllowedOrigin(origin))
+    return c.json({ error: "Origin is not allowed." }, 403)
+  const contentLength = Number(c.req.header("Content-Length") || 0)
+  if (!Number.isFinite(contentLength) || contentLength > 1_500_000)
+    return c.json({ error: "Request body is too large." }, 413)
+  if (
+    c.req.method !== "OPTIONS" &&
+    !(await checkRateLimit("api", requestIdentifier(c), 600, 5 * 60 * 1000))
+  )
+    return c.json({ error: "Too many requests. Try again shortly." }, 429)
+  await next()
+})
 app.use("*", async (c, next) => {
   await next()
   c.header("X-Content-Type-Options", "nosniff")
   c.header("X-Frame-Options", "DENY")
   c.header("Referrer-Policy", "no-referrer")
+  c.header("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
+  c.header(
+    "Content-Security-Policy",
+    "default-src 'none'; frame-ancestors 'none'",
+  )
+  c.header("Cross-Origin-Opener-Policy", "same-origin")
+  c.header("Cross-Origin-Resource-Policy", "same-site")
+  c.header("Strict-Transport-Security", "max-age=63072000; includeSubDomains")
   c.header("Cache-Control", "no-store")
 })
 app.onError((error: any, c) => {
-  c.header("Access-Control-Allow-Origin", "*")
   c.header("Content-Type", "application/json")
   const databaseSetupMissing =
     error?.code === "PGRST202" ||
@@ -571,10 +662,6 @@ app.onError((error: any, c) => {
     String(error?.message ?? "").includes("perklyn_activate_rfid_card") ||
     String(error?.message ?? "").includes("perklyn_rfid_points_transaction")
   if (databaseSetupMissing) {
-    console.log(
-      "NFC database functions are not installed",
-      error?.code ?? "missing_rpc",
-    )
     return c.json(
       {
         error:
@@ -583,10 +670,6 @@ app.onError((error: any, c) => {
       503,
     )
   }
-  console.log(
-    "Unhandled server request failed",
-    error?.code ?? error?.name ?? "unknown",
-  )
   return c.json(
     {
       error:
@@ -601,15 +684,26 @@ app.get(`${prefix}/health`, (c) => c.json({ status: "ok" }))
 app.post(`${prefix}/admin/login`, async (c) => {
   const { phone = "", password = "" } = await c.req.json()
   const normalizedPhone = normalizePhone(String(phone))
+  if (normalizedPhone.length < 10 || normalizedPhone.length > 15)
+    return c.json({ error: "Enter a valid admin phone number." }, 400)
+  if (
+    typeof password !== "string" ||
+    password.length < 12 ||
+    password.length > 128
+  )
+    return c.json({ error: "The admin credentials are invalid." }, 401)
   if (
     !(await checkRateLimit(
       "admin-login",
-      normalizedPhone || "unknown",
+      `${requestIdentifier(c)}:${normalizedPhone}`,
       8,
       15 * 60 * 1000,
     ))
   )
-    return c.json({ error: "Too many admin login attempts. Try again later." }, 429)
+    return c.json(
+      { error: "Too many admin login attempts. Try again later." },
+      429,
+    )
   const configuredPhone = normalizePhone(
     Deno.env.get("PERKLYN_ADMIN_PHONE") ?? "",
   )
@@ -619,18 +713,14 @@ app.post(`${prefix}/admin/login`, async (c) => {
       { error: "Admin login secrets are not configured on the server." },
       503,
     )
-  const [phoneHash, configuredPhoneHash, passwordHash, configuredPasswordHash] =
-    await Promise.all([
-      hashText(normalizedPhone),
-      hashText(configuredPhone),
-      hashText(String(password)),
-      hashText(configuredPassword),
-    ])
   if (
-    phoneHash !== configuredPhoneHash ||
-    passwordHash !== configuredPasswordHash
+    !(await secureTextEqual(normalizedPhone, configuredPhone)) ||
+    !(await secureTextEqual(password, configuredPassword))
   )
-    return c.json({ error: "The admin phone number or password is incorrect." }, 401)
+    return c.json(
+      { error: "The admin phone number or password is incorrect." },
+      401,
+    )
   const token = randomToken()
   const tokenHash = await hashText(token)
   const expiresAt = Date.now() + 8 * 60 * 60 * 1000
@@ -651,6 +741,8 @@ app.post(`${prefix}/admin/logout`, async (c) => {
 app.get(`${prefix}/admin/businesses`, async (c) => {
   const session = await authenticatedAdmin(c)
   if (!session) return c.json({ error: "Admin session expired." }, 401)
+  if (!(await checkRateLimit("admin-api", session.tokenHash, 120, 60 * 1000)))
+    return c.json({ error: "Too many admin requests. Try again shortly." }, 429)
   const storedBusinesses = await kv.getByPrefix("business:")
   const uniqueBusinesses = Array.from(
     new Map(
@@ -687,9 +779,13 @@ app.put(`${prefix}/admin/businesses/:id/status`, async (c) => {
   const session = await authenticatedAdmin(c)
   if (!session) return c.json({ error: "Admin session expired." }, 401)
   const businessId = Number(c.req.param("id"))
+  if (!Number.isSafeInteger(businessId) || businessId <= 0)
+    return c.json({ error: "Invalid business ID." }, 400)
   const business = await kv.get(`business:${businessId}`)
   if (!business) return c.json({ error: "Business ID was not found." }, 404)
   const { paused } = await c.req.json()
+  if (typeof paused !== "boolean")
+    return c.json({ error: "Paused status must be true or false." }, 400)
   const status = {
     businessId,
     paused: Boolean(paused),
@@ -713,21 +809,29 @@ app.post(`${prefix}/signup`, async (c) => {
       password,
       authorizationCode = "",
     } = body
+    const cleanRole = cleanText(role, 16)
+    const cleanName = cleanText(name, 120)
+    const cleanBusinessName = cleanText(businessName, 160)
+    const normalizedPhone = normalizePhone(String(phone))
     if (
-      !["customer", "business"].includes(role) ||
-      !name ||
-      !phone ||
+      !["customer", "business"].includes(cleanRole) ||
+      !cleanName ||
+      normalizedPhone.length < 10 ||
+      normalizedPhone.length > 15 ||
       !email ||
-      !password
+      typeof password !== "string"
     )
       return c.json({ error: "Missing required account information." }, 400)
     const normalizedEmail = String(email).trim().toLowerCase()
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail))
+    if (
+      normalizedEmail.length > 254 ||
+      !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)
+    )
       return c.json({ error: "Enter a valid recovery email address." }, 400)
     if (
       !(await checkRateLimit(
         "signup",
-        `${role}:${normalizePhone(phone)}`,
+        `${cleanRole}:${normalizedPhone}`,
         5,
         60 * 60 * 1000,
       ))
@@ -739,19 +843,24 @@ app.post(`${prefix}/signup`, async (c) => {
         },
         429,
       )
-    if (await kv.get(`login:${role}:${normalizePhone(phone)}`))
+    if (await kv.get(`login:${cleanRole}:${normalizedPhone}`))
       return c.json(
         { error: "An account already exists for this phone number." },
         409,
       )
-    if (password.length < 10)
+    if (password.length < 10 || password.length > 128)
       return c.json(
-        { error: "Password must contain at least 10 characters." },
+        { error: "Password must contain between 10 and 128 characters." },
         400,
       )
-    if (role === "business") {
+    if (cleanRole === "business") {
       const configuredCode = Deno.env.get("BUSINESS_AUTH_CODE")
-      if (!configuredCode || authorizationCode !== configuredCode)
+      if (
+        !configuredCode ||
+        typeof authorizationCode !== "string" ||
+        authorizationCode.length > 128 ||
+        !(await secureTextEqual(authorizationCode, configuredCode))
+      )
         return c.json(
           { error: "The business authorization code is invalid." },
           403,
@@ -762,11 +871,11 @@ app.post(`${prefix}/signup`, async (c) => {
       password,
       email_confirm: true,
       user_metadata: {
-        role,
-        name,
-        phone,
+        role: cleanRole,
+        name: cleanName,
+        phone: normalizedPhone,
         email: normalizedEmail,
-        businessName,
+        businessName: cleanBusinessName,
       },
     })
     if (error) {
@@ -782,20 +891,19 @@ app.post(`${prefix}/signup`, async (c) => {
     }
     const profile = {
       id: data.user.id,
-      role,
-      name,
-      phone,
+      role: cleanRole,
+      name: cleanName,
+      phone: normalizedPhone,
       email: normalizedEmail,
-      businessName,
+      businessName: cleanBusinessName,
       createdAt: new Date().toISOString(),
     }
     await kv.mset(
-      [`profile:${data.user.id}`, `login:${role}:${normalizePhone(phone)}`],
+      [`profile:${data.user.id}`, `login:${cleanRole}:${normalizedPhone}`],
       [profile, { email: normalizedEmail, userId: data.user.id }],
     )
     return c.json({ profile })
-  } catch (error) {
-    console.log("Signup error", error)
+  } catch {
     return c.json({ error: "Unable to create the account." }, 500)
   }
 })
@@ -1187,11 +1295,39 @@ app.get(`${prefix}/me`, async (c) => {
 app.put(`${prefix}/state`, async (c) => {
   const user = await authenticatedUser(c)
   if (!user) return c.json({ error: "Unauthorized" }, 401)
-  const state = await c.req.json()
-  if (JSON.stringify(state).length > 1_000_000)
+  const rawState = await c.req.json()
+  if (JSON.stringify(rawState).length > 1_000_000)
     return c.json({ error: "Account state is too large." }, 413)
+  let state: any
+  try {
+    state = sanitizeStateValue(rawState)
+  } catch (error) {
+    return c.json(
+      {
+        error:
+          error instanceof Error ? error.message : "Account data is invalid.",
+      },
+      400,
+    )
+  }
   const profile = await kv.get(`profile:${user.id}`)
   if (profile?.role === "business" && Array.isArray(state.businesses)) {
+    if (state.businesses.length < 1 || state.businesses.length > 10)
+      return c.json(
+        { error: "A business account must contain 1 to 10 businesses." },
+        400,
+      )
+    for (const business of state.businesses) {
+      const businessId = Number(business?.id)
+      if (!Number.isSafeInteger(businessId) || businessId <= 0)
+        return c.json({ error: "Business data contains an invalid ID." }, 400)
+      const existing = await kv.get(`business:${businessId}`)
+      if (existing && existing._ownerId !== user.id)
+        return c.json(
+          { error: "A business ID is already owned by another account." },
+          403,
+        )
+    }
     const access = await partitionBusinessAccess(state.businesses)
     if (access.paused.length > 0)
       return c.json(
@@ -1583,9 +1719,8 @@ app.put(`${prefix}/billing/settings`, async (c) => {
     .select("*")
     .single()
   if (error) {
-    console.log("Unable to save billing settings", error.message)
     return c.json(
-      { error: `Unable to save billing settings: ${error.message}` },
+      { error: "Unable to save billing settings. Check the submitted values." },
       400,
     )
   }
@@ -3513,7 +3648,6 @@ app.post(`${prefix}/rfid/cards/activate`, async (c) => {
     })
   } catch (error: any) {
     const detail = String(error?.message ?? "")
-    console.log("RFID activation RPC failed", detail)
     if (
       detail.includes("perklyn_activate_rfid_card") ||
       detail.includes("schema cache") ||
@@ -3529,7 +3663,7 @@ app.post(`${prefix}/rfid/cards/activate`, async (c) => {
     }
     return c.json(
       {
-        error: `Unable to activate this RFID card: ${detail || "database operation failed"}`,
+        error: "Unable to activate this RFID card.",
       },
       500,
     )
