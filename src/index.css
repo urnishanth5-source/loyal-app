@@ -7990,3 +7990,290 @@ body::-webkit-scrollbar {
     grid-template-columns: 1fr;
   }
 }
+
+/* Shared app experience */
+.scroll-progress {
+  position: fixed;
+  z-index: 250;
+  width: 100%;
+  height: 3px;
+  top: 0;
+  left: 0;
+  transform-origin: left center;
+  background: linear-gradient(90deg, #8e2de2, #ff4fa3, #f0cf69);
+  box-shadow: 0 0 .8rem rgb(255 79 163 / 55%);
+  pointer-events: none;
+}
+
+.app-utility-dock {
+  position: fixed;
+  z-index: 90;
+  display: grid;
+  right: 1rem;
+  bottom: 1rem;
+  gap: .55rem;
+}
+
+.app-utility-dock button,
+.public-menu-toggle {
+  display: grid;
+  width: 2.85rem;
+  height: 2.85rem;
+  place-items: center;
+  border: 1px solid rgb(255 255 255 / 64%);
+  border-radius: 50%;
+  color: #fff;
+  background: linear-gradient(145deg, rgb(70 23 112 / 94%), rgb(39 11 67 / 96%));
+  box-shadow: 0 .7rem 1.8rem rgb(46 12 77 / 28%), inset 0 1px 0 rgb(255 255 255 / 16%);
+  backdrop-filter: blur(18px);
+  transition: transform .2s ease, box-shadow .2s ease, background .2s ease;
+}
+
+.app-utility-dock button:hover,
+.public-menu-toggle:hover {
+  background: linear-gradient(145deg, #a52ee9, #ff4fa3);
+  box-shadow: 0 .85rem 2rem rgb(118 35 171 / 36%);
+  transform: translateY(-2px);
+}
+
+.app-utility-dock svg,
+.public-menu-toggle svg {
+  width: 1.2rem;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.app-last-updated {
+  position: fixed;
+  z-index: 40;
+  left: 1rem;
+  bottom: 1rem;
+  padding: .42rem .68rem;
+  border: 1px solid rgb(255 255 255 / 60%);
+  border-radius: 2rem;
+  color: #765c82;
+  background: rgb(255 255 255 / 72%);
+  box-shadow: 0 .45rem 1.2rem rgb(55 18 82 / 10%);
+  font-size: .58rem;
+  font-weight: 800;
+  letter-spacing: .03em;
+  backdrop-filter: blur(16px);
+}
+
+.cookie-banner {
+  position: fixed;
+  z-index: 220;
+  display: grid;
+  width: min(calc(100% - 2rem), 43rem);
+  right: 1rem;
+  bottom: 1rem;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 1.25rem;
+  padding: 1rem;
+  border: 1px solid rgb(255 255 255 / 18%);
+  border-radius: 1.35rem;
+  color: #f8efff;
+  background:
+    radial-gradient(circle at 100% 0, rgb(255 79 163 / 20%), transparent 16rem),
+    rgb(35 11 61 / 96%);
+  box-shadow: 0 1.5rem 4rem rgb(26 7 48 / 38%);
+  backdrop-filter: blur(24px);
+}
+
+.cookie-banner b {
+  display: block;
+  margin-bottom: .28rem;
+  font-size: .82rem;
+}
+
+.cookie-banner p {
+  margin: 0;
+  color: rgb(242 224 255 / 70%);
+  font-size: .67rem;
+  line-height: 1.55;
+}
+
+.cookie-actions {
+  display: flex;
+  gap: .5rem;
+}
+
+.cookie-actions button {
+  min-height: 2.45rem;
+  padding: 0 .85rem;
+  border: 0;
+  border-radius: .8rem;
+  font-size: .65rem;
+  font-weight: 900;
+  white-space: nowrap;
+}
+
+.cookie-essential {
+  color: #eadcf5;
+  background: rgb(255 255 255 / 9%);
+}
+
+.cookie-accept {
+  color: #2e103f;
+  background: linear-gradient(135deg, #f1d16d, #ff85c4);
+}
+
+.public-menu-toggle {
+  display: none;
+  border-radius: .85rem;
+}
+
+html[data-theme="dark"] body {
+  color: #eee4f7;
+  background:
+    radial-gradient(circle at 8% 5%, rgb(255 79 163 / 15%), transparent 28rem),
+    radial-gradient(circle at 92% 18%, rgb(154 43 234 / 18%), transparent 34rem),
+    #160824;
+}
+
+html[data-theme="dark"] .app-dashboard,
+html[data-theme="dark"] .admin-page,
+html[data-theme="dark"] .admin-login-page {
+  color: #eee4f7;
+  background:
+    radial-gradient(circle at 10% 10%, rgb(255 79 163 / 13%), transparent 28rem),
+    radial-gradient(circle at 90% 20%, rgb(151 54 224 / 18%), transparent 34rem),
+    #160824 !important;
+}
+
+html[data-theme="dark"] .dashboard-header,
+html[data-theme="dark"] .admin-header {
+  border-color: rgb(255 255 255 / 10%);
+  background: rgb(24 9 39 / 78%);
+  box-shadow: 0 .6rem 2rem rgb(0 0 0 / 20%);
+}
+
+html[data-theme="dark"] .app-dashboard :is(
+  .stat-card,
+  .table-card,
+  .business-tile,
+  .secure-note,
+  .empty-wallet,
+  .side-panel,
+  .dialog,
+  .card-editor,
+  .reward-manager,
+  .history-panel,
+  .settings-dialog,
+  .notification-center,
+  .island-menu
+),
+html[data-theme="dark"] .admin-login-card,
+html[data-theme="dark"] .admin-business-list article {
+  color: #eee4f7;
+  border-color: rgb(255 255 255 / 12%);
+  background: linear-gradient(145deg, rgb(62 23 91 / 82%), rgb(30 11 48 / 88%));
+  box-shadow: 0 1.1rem 2.8rem rgb(0 0 0 / 24%), inset 0 1px 0 rgb(255 255 255 / 8%);
+}
+
+html[data-theme="dark"] .app-dashboard :is(
+  .field,
+  .phone-field,
+  .search-box,
+  input,
+  select,
+  textarea
+),
+html[data-theme="dark"] .admin-page input,
+html[data-theme="dark"] .admin-login-page input {
+  color: #f6effc;
+  border-color: rgb(255 255 255 / 13%);
+  background: rgb(18 7 31 / 58%);
+}
+
+html[data-theme="dark"] .app-dashboard :is(
+  .page-title,
+  .page-kicker,
+  .section-title,
+  h1,
+  h2,
+  h3,
+  b,
+  strong
+),
+html[data-theme="dark"] .admin-page :is(h1, b, strong),
+html[data-theme="dark"] .admin-login-page :is(h1, b, strong) {
+  color: #fff;
+}
+
+html[data-theme="dark"] .app-last-updated {
+  color: rgb(238 220 249 / 68%);
+  border-color: rgb(255 255 255 / 10%);
+  background: rgb(28 9 47 / 74%);
+}
+
+@media (max-width: 720px) {
+  .public-menu-toggle {
+    display: grid;
+  }
+
+  .download-nav,
+  .org-nav {
+    position: sticky;
+    top: 0;
+    padding: .85rem 0;
+    background: rgb(3 45 34 / 88%);
+    backdrop-filter: blur(18px);
+  }
+
+  .download-nav-actions,
+  .org-nav-actions {
+    position: absolute;
+    display: none;
+    width: 12.5rem;
+    top: calc(100% + .5rem);
+    right: 0;
+    padding: .55rem;
+    border: 1px solid rgb(255 255 255 / 12%);
+    border-radius: 1rem;
+    background: rgb(28 10 47 / 96%);
+    box-shadow: 0 1rem 2.5rem rgb(0 0 0 / 28%);
+  }
+
+  .download-nav-actions.open,
+  .org-nav-actions.open {
+    display: grid;
+    gap: .4rem;
+  }
+
+  .download-nav-actions .btn,
+  .org-nav-actions .btn {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .org-nav-actions .btn-ghost {
+    display: inline-flex;
+  }
+
+  .cookie-banner {
+    width: calc(100% - 1rem);
+    right: .5rem;
+    bottom: .5rem;
+    grid-template-columns: 1fr;
+    gap: .8rem;
+  }
+
+  .cookie-actions {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .app-last-updated {
+    display: none;
+  }
+
+  .app-utility-dock {
+    right: .7rem;
+    bottom: 5.7rem;
+  }
+}

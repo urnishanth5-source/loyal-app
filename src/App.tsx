@@ -215,6 +215,7 @@ function Icon({ name, size = 20 }: { name: string; size?: number }) {
       </>
     ),
     minus: <path d="M5 12h14" />,
+    menu: <path d="M4 7h16M4 12h16M4 17h16" />,
     nfc: (
       <>
         <path d="M7 7a7 7 0 0 1 0 10M11 4a11 11 0 0 1 0 16M3 10a3 3 0 0 1 0 4" />
@@ -329,6 +330,7 @@ function Button({
 }
 
 function DownloadPage() {
+  const [menuOpen, setMenuOpen] = useState(false)
   useEffect(() => {
     const previousTitle = document.title
     document.title = "Download Perklyn"
@@ -397,14 +399,25 @@ function DownloadPage() {
           </span>
           <span>Perklyn</span>
         </Button>
-        <Button
-          variant="secondary"
-          onClick={() => {
-            window.location.href = "/"
-          }}
+        <button
+          type="button"
+          className="public-menu-toggle"
+          aria-label="Toggle navigation"
+          aria-expanded={menuOpen}
+          onClick={() => setMenuOpen((open) => !open)}
         >
-          Open web app <Icon name="arrow" size={17} />
-        </Button>
+          <Icon name={menuOpen ? "minus" : "menu"} size={20} />
+        </button>
+        <div className={`download-nav-actions ${menuOpen ? "open" : ""}`}>
+          <Button
+            variant="secondary"
+            onClick={() => {
+              window.location.href = "/"
+            }}
+          >
+            Open web app <Icon name="arrow" size={17} />
+          </Button>
+        </div>
       </nav>
 
       <section className="download-hero">
@@ -547,6 +560,7 @@ function DownloadPage() {
 }
 
 function OrganizationPage() {
+  const [menuOpen, setMenuOpen] = useState(false)
   useEffect(() => {
     const previousTitle = document.title
     document.title = "Perklyn — Building rewarding connections"
@@ -603,7 +617,16 @@ function OrganizationPage() {
         >
           <Brand light />
         </Button>
-        <div className="org-nav-actions">
+        <button
+          type="button"
+          className="public-menu-toggle"
+          aria-label="Toggle navigation"
+          aria-expanded={menuOpen}
+          onClick={() => setMenuOpen((open) => !open)}
+        >
+          <Icon name={menuOpen ? "minus" : "menu"} size={20} />
+        </button>
+        <div className={`org-nav-actions ${menuOpen ? "open" : ""}`}>
           <Button
             variant="ghost"
             onClick={() => {
@@ -4018,7 +4041,7 @@ function BusinessDashboard({
   }
 
   return (
-    <div className="min-h-screen bg-[#f8f3ff]">
+    <div className="app-dashboard min-h-screen bg-[#f8f3ff]">
       <DashboardHeader
         title={merchant.name}
         subtitle="Business portal"
@@ -5242,7 +5265,7 @@ function CustomerDashboard({
     }
   }
   return (
-    <div className="min-h-screen bg-[#f8f3ff]">
+    <div className="app-dashboard min-h-screen bg-[#f8f3ff]">
       <DashboardHeader
         title="My loyalty wallet"
         subtitle="Customer portal"
