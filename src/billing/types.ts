@@ -8,6 +8,8 @@ export type BarcodeLabelSettings = {
   barcodeHeightMm: number
   barcodeModuleWidth: number
   textSizePt: number
+  showBusinessName: boolean
+  businessName: string
   showBarcodeValue: boolean
   showName: boolean
   showPrice: boolean

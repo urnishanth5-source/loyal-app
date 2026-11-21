@@ -1545,6 +1545,11 @@ const billingSettingsResponse = (row: any) =>
             row.barcode_label_settings?.barcodeModuleWidth ?? 1.4,
           ),
           textSizePt: Number(row.barcode_label_settings?.textSizePt ?? 8),
+          showBusinessName:
+            row.barcode_label_settings?.showBusinessName !== false,
+          businessName: String(
+            row.barcode_label_settings?.businessName ?? row.legal_name ?? "",
+          ).slice(0, 80),
           showBarcodeValue:
             row.barcode_label_settings?.showBarcodeValue !== false,
           showName: row.barcode_label_settings?.showName !== false,
@@ -1745,6 +1750,11 @@ app.put(`${prefix}/billing/settings`, async (c) => {
       3,
     ),
     textSizePt: boundedBarcodeNumber(rawBarcodeLabel.textSizePt, 8, 6, 16),
+    showBusinessName: rawBarcodeLabel.showBusinessName !== false,
+    businessName: cleanText(
+      rawBarcodeLabel.businessName || body.legalName,
+      80,
+    ),
     showBarcodeValue: rawBarcodeLabel.showBarcodeValue !== false,
     showName: rawBarcodeLabel.showName !== false,
     showPrice: rawBarcodeLabel.showPrice === true,

@@ -141,6 +141,8 @@ const defaultBarcodeLabelSettings: BarcodeLabelSettings = {
   barcodeHeightMm: 15,
   barcodeModuleWidth: 1.4,
   textSizePt: 8,
+  showBusinessName: true,
+  businessName: "",
   showBarcodeValue: true,
   showName: true,
   showPrice: false,
@@ -165,7 +167,7 @@ const emptySettings = (businessId: number, name: string): BillingSettings => ({
   creditNotePrefix: "CN",
   pointsPerRupee: 1,
   receiptFooter: "",
-  barcodeLabel: { ...defaultBarcodeLabelSettings },
+  barcodeLabel: { ...defaultBarcodeLabelSettings, businessName: name },
   catalogCustomFields: [],
   catalogCustomOptions: {},
   catalogOptions: {
@@ -298,6 +300,7 @@ const normalizeBarcodeLabelSettings = (
       3,
     ),
     textSizePt: clampBarcodeSetting(value.textSizePt, 6, 16),
+    businessName: String(value.businessName ?? "").trim().slice(0, 80),
     customText: String(value.customText ?? "").trim().slice(0, 80),
   }
 }
@@ -1479,6 +1482,9 @@ export default function BillingWorkspace({
         .replaceAll(">", "&gt;")
         .replaceAll('"', "&quot;")
         .replaceAll("'", "&#039;")
+    const safeBusinessName = escapeLabelText(
+      label.businessName || settingsDraft.legalName || merchant.name,
+    )
     const details = [
       label.customText.trim(),
       label.showBrand && catalogDraft.brand
@@ -1493,6 +1499,7 @@ export default function BillingWorkspace({
     ].filter(Boolean)
     const sticker = `
       <section class="sticker">
+        ${label.showBusinessName && safeBusinessName ? `<strong class="business-name">${safeBusinessName}</strong>` : ""}
         ${label.showName ? `<b>${safeName}</b>` : ""}
         ${svg.outerHTML}
         ${
@@ -1550,6 +1557,15 @@ export default function BillingWorkspace({
               width: 100%;
               overflow: hidden;
               font-size: ${textSizePt}pt;
+              line-height: 1.1;
+              text-overflow: ellipsis;
+              white-space: nowrap;
+            }
+            .business-name {
+              display: block;
+              width: 100%;
+              overflow: hidden;
+              font-size: ${Math.max(6, textSizePt + 1)}pt;
               line-height: 1.1;
               text-overflow: ellipsis;
               white-space: nowrap;
@@ -4169,7 +4185,10 @@ export default function BillingWorkspace({
                 <button
                   type="button"
                   onClick={() =>
-                    updateBarcodeLabel({ ...defaultBarcodeLabelSettings })
+                    updateBarcodeLabel({
+                      ...defaultBarcodeLabelSettings,
+                      businessName: settingsDraft.legalName || merchant.name,
+                    })
                   }
                 >
                   Reset to 10 × 2.5 cm
@@ -4189,6 +4208,12 @@ export default function BillingWorkspace({
                       length: barcodeLabelPreview.stickersPerSheet,
                     }).map((_, index) => (
                       <div className="billing-label-preview" key={index}>
+                        {barcodeLabelPreview.showBusinessName &&
+                          barcodeLabelPreview.businessName && (
+                            <strong>
+                              {barcodeLabelPreview.businessName}
+                            </strong>
+                          )}
                         {barcodeLabelPreview.showName && (
                           <b>Sample product</b>
                         )}
@@ -4284,6 +4309,7 @@ export default function BillingWorkspace({
                   <div className="billing-barcode-detail-toggles">
                     {(
                       [
+                        ["Business name", "showBusinessName"],
                         ["Product name", "showName"],
                         ["Barcode number", "showBarcodeValue"],
                         ["Selling price", "showPrice"],
@@ -4307,6 +4333,20 @@ export default function BillingWorkspace({
                       </label>
                     ))}
                   </div>
+                  <label className="billing-barcode-custom-text">
+                    Business name
+                    <input
+                      className="field"
+                      maxLength={80}
+                      value={settingsDraft.barcodeLabel.businessName}
+                      onChange={(event) =>
+                        updateBarcodeLabel({
+                          businessName: event.target.value,
+                        })
+                      }
+                      placeholder={settingsDraft.legalName || merchant.name}
+                    />
+                  </label>
                   <label className="billing-barcode-custom-text">
                     Custom label text
                     <input
