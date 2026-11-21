@@ -16,6 +16,7 @@ describe("catalog Excel import", () => {
     const result = catalogRowsFromRecords(
       [
         {
+          "Item ID": "item-1",
           Name: "Cotton Shirt",
           "Item Type": "Product",
           Stock: 12,
@@ -35,6 +36,7 @@ describe("catalog Excel import", () => {
     )
 
     expect(result.errors).toEqual([])
+    expect(result.rows[0].itemId).toBe("item-1")
     expect(result.rows[0].item).toMatchObject({
       name: "Cotton Shirt",
       barcode: "0012345",
@@ -126,6 +128,27 @@ describe("catalog Excel import", () => {
       pricePaise: 129900,
       gstRateBps: 1200,
     })
+  })
+
+  it("requires item IDs for a bulk-edit workbook", async () => {
+    const workbook = new Workbook()
+    const worksheet = workbook.addWorksheet("Products")
+    worksheet.addRow(["Name", "HSN/SAC", "MRP", "GST %"])
+    worksheet.addRow(["Linen Shirt", "6205", 1299, 12])
+    const buffer = await workbook.xlsx.writeBuffer()
+    const bytes = buffer as unknown as Uint8Array
+
+    const result = await parseCatalogWorkbook(
+      bytes.buffer.slice(
+        bytes.byteOffset,
+        bytes.byteOffset + bytes.byteLength,
+      ) as ArrayBuffer,
+      [],
+      true,
+    )
+
+    expect(result.rows).toEqual([])
+    expect(result.errors[0].error).toContain("Item ID is required")
   })
 })
 

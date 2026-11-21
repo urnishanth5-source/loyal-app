@@ -6267,6 +6267,67 @@ body::-webkit-scrollbar {
   gap: .5rem;
 }
 
+.billing-excel-edit-menu {
+  position: relative;
+}
+
+.billing-excel-edit-menu > summary {
+  display: flex;
+  height: 100%;
+  align-items: center;
+  cursor: pointer;
+  list-style: none;
+}
+
+.billing-excel-edit-menu > summary::-webkit-details-marker {
+  display: none;
+}
+
+.billing-excel-edit-menu[open] > summary {
+  border-color: rgb(255 139 203 / 55%);
+}
+
+.billing-excel-edit-menu > div {
+  position: absolute;
+  z-index: 20;
+  top: calc(100% + .45rem);
+  right: 0;
+  display: grid;
+  width: 15rem;
+  gap: .35rem;
+  padding: .45rem;
+  border: 1px solid rgb(255 255 255 / 12%);
+  border-radius: .8rem;
+  background: #201329;
+  box-shadow: 0 1rem 2.5rem rgb(0 0 0 / 38%);
+}
+
+.billing-excel-edit-menu > div button {
+  display: grid;
+  gap: .15rem;
+  padding: .7rem;
+  border: 0;
+  border-radius: .55rem;
+  color: white;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+
+.billing-excel-edit-menu > div button:hover {
+  background: rgb(255 255 255 / 8%);
+}
+
+.billing-excel-edit-menu > div button:disabled {
+  cursor: not-allowed;
+  opacity: .5;
+}
+
+.billing-excel-edit-menu > div span {
+  color: rgb(237 217 249 / 62%);
+  font-size: .62rem;
+}
+
 .billing-file-input {
   display: none;
 }

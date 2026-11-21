@@ -2174,6 +2174,118 @@ app.post(`${prefix}/billing/catalog/bulk`, async (c) => {
   }
 })
 
+app.post(`${prefix}/billing/catalog/bulk-edit`, async (c) => {
+  const user = await authenticatedUser(c)
+  if (!user) return c.json({ error: "Unauthorized" }, 401)
+  const body = await c.req.json()
+  const businessId = Number(body.businessId)
+  if (!(await ownedBusiness(businessId, user.id)))
+    return c.json({ error: "You do not own this business." }, 403)
+  const rows = Array.isArray(body.rows) ? body.rows.slice(0, 500) : []
+  if (rows.length === 0)
+    return c.json({ error: "Add at least one product to update." }, 400)
+
+  try {
+    const itemIds = Array.from(
+      new Set(
+        rows
+          .map((input: any) => String(input?.itemId ?? "").trim())
+          .filter(Boolean),
+      ),
+    )
+    const ownedIds = new Set<string>()
+    for (let index = 0; index < itemIds.length; index += 100) {
+      const { data, error } = await adminClient()
+        .from("billing_catalog_items")
+        .select("id")
+        .eq("business_id", businessId)
+        .eq("owner_user_id", user.id)
+        .in("id", itemIds.slice(index, index + 100))
+      if (error) throw error
+      ;(data ?? []).forEach((item: any) => ownedIds.add(String(item.id)))
+    }
+
+    const errors: any[] = []
+    const seenIds = new Set<string>()
+    const validRows: { input: any; row: any }[] = []
+    rows.forEach((input: any) => {
+      const itemId = String(input?.itemId ?? "").trim()
+      const rowErrors: string[] = []
+      if (!itemId) rowErrors.push("Item ID is required.")
+      else if (!ownedIds.has(itemId))
+        rowErrors.push("Item ID was not found in this business.")
+      else if (seenIds.has(itemId))
+        rowErrors.push("Item ID is duplicated in this workbook.")
+      if (itemId) seenIds.add(itemId)
+      try {
+        const row = catalogRow(
+          input?.item ?? {},
+          user.id,
+          businessId,
+          itemId,
+        )
+        if (rowErrors.length === 0) validRows.push({ input, row })
+      } catch (error: any) {
+        rowErrors.push(error?.message ?? "Invalid catalog item.")
+      }
+      if (rowErrors.length > 0)
+        errors.push({
+          sourceRow: Number(input?.sourceRow ?? 0),
+          source: input?.source ?? {},
+          error: rowErrors.join(" "),
+        })
+    })
+
+    const updated: any[] = []
+    if (validRows.length > 0) {
+      const { data, error } = await adminClient()
+        .from("billing_catalog_items")
+        .upsert(
+          validRows.map((item) => item.row),
+          { onConflict: "id" },
+        )
+        .select("*")
+      if (!error) {
+        updated.push(...(data ?? []).map(catalogResponse))
+      } else {
+        for (const item of validRows) {
+          const { data: saved, error: saveError } = await adminClient()
+            .from("billing_catalog_items")
+            .update(item.row)
+            .eq("id", item.row.id)
+            .eq("business_id", businessId)
+            .eq("owner_user_id", user.id)
+            .select("*")
+            .single()
+          if (saveError) {
+            errors.push({
+              sourceRow: Number(item.input?.sourceRow ?? 0),
+              source: item.input?.source ?? {},
+              error: saveError.message?.includes("duplicate")
+                ? "SKU or barcode already exists."
+                : saveError.message,
+            })
+          } else {
+            updated.push(catalogResponse(saved))
+          }
+        }
+      }
+    }
+
+    return c.json({
+      importedCount: 0,
+      updatedCount: updated.length,
+      items: updated,
+      errors,
+    })
+  } catch (error: any) {
+    return c.json(
+      { error: error?.message ?? "Unable to update the catalog." },
+      400,
+    )
+  }
+})
+
 app.put(`${prefix}/billing/catalog/:id`, async (c) => {
   const user = await authenticatedUser(c)
   if (!user) return c.json({ error: "Unauthorized" }, 401)

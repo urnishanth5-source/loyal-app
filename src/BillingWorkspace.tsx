@@ -582,6 +582,10 @@ export default function BillingWorkspace({
   )
   const [catalog, setCatalog] = useState<CatalogItem[]>([])
   const catalogImportInput = useRef<HTMLInputElement>(null)
+  const catalogEditInput = useRef<HTMLInputElement>(null)
+  const [catalogImportMode, setCatalogImportMode] = useState<"create" | "edit">(
+    "create",
+  )
   const [catalogImportRows, setCatalogImportRows] = useState<
     CatalogImportRow[]
   >([])
@@ -1249,8 +1253,36 @@ export default function BillingWorkspace({
     }
   }
 
+  const downloadCatalogEditExcel = async () => {
+    setCatalogExporting(true)
+    setMessage("")
+    try {
+      const items = await fetchAllCatalogItems()
+      const { downloadCatalogEditWorkbook } = await import(
+        "./billing/catalogExcel"
+      )
+      await downloadCatalogEditWorkbook(
+        items,
+        settingsDraft.catalogCustomFields,
+      )
+      setCatalog(items)
+      setMessage(
+        `${items.length} catalog item${items.length === 1 ? "" : "s"} prepared for bulk editing.`,
+      )
+    } catch (error) {
+      setMessage(
+        error instanceof Error
+          ? error.message
+          : "Unable to prepare the bulk-edit Excel.",
+      )
+    } finally {
+      setCatalogExporting(false)
+    }
+  }
+
   const selectCatalogImportFile = async (
     event: ChangeEvent<HTMLInputElement>,
+    mode: "create" | "edit" = "create",
   ) => {
     const file = event.target.files?.[0]
     event.target.value = ""
@@ -1265,7 +1297,9 @@ export default function BillingWorkspace({
       const result = await parseCatalogWorkbook(
         await file.arrayBuffer(),
         settingsDraft.catalogCustomFields,
+        mode === "edit",
       )
+      setCatalogImportMode(mode)
       setCatalogImportRows(result.rows)
       setCatalogImportErrors(result.errors)
       setCatalogImportFileName(file.name)
@@ -1284,6 +1318,7 @@ export default function BillingWorkspace({
     setCatalogImportErrors([])
     setCatalogImportFileName("")
     setCatalogImportProgress("")
+    setCatalogImportMode("create")
   }
 
   const importCatalogWorkbook = async () => {
@@ -1300,21 +1335,30 @@ export default function BillingWorkspace({
           const start = batchIndex * batchSize
           const rows = catalogImportRows.slice(start, start + batchSize)
           setCatalogImportProgress(
-            `Importing ${start + 1}–${start + rows.length} of ${catalogImportRows.length}`,
+            `${catalogImportMode === "edit" ? "Updating" : "Importing"} ${start + 1}–${start + rows.length} of ${catalogImportRows.length}`,
           )
           const result = await apiRequest<{
             importedCount: number
+            updatedCount?: number
             errors: CatalogImportError[]
             settings?: BillingSettings
             optionSyncWarning?: string
-          }>("/billing/catalog/bulk", {
+          }>(
+            catalogImportMode === "edit"
+              ? "/billing/catalog/bulk-edit"
+              : "/billing/catalog/bulk",
+            {
             method: "POST",
             body: JSON.stringify({
               businessId: merchant.id,
               rows,
             }),
-          })
-          importedCount += result.importedCount
+            },
+          )
+          importedCount +=
+            catalogImportMode === "edit"
+              ? (result.updatedCount ?? 0)
+              : result.importedCount
           serverErrors.push(...(result.errors ?? []))
           if (result.settings) {
             const savedSettings = normalizeBillingSettings(
@@ -1338,7 +1382,9 @@ export default function BillingWorkspace({
       cancelCatalogImport()
       await loadCatalog()
       setMessage(
-        `${importedCount} product${importedCount === 1 ? "" : "s"} imported.${
+        `${importedCount} product${importedCount === 1 ? "" : "s"} ${
+          catalogImportMode === "edit" ? "updated" : "imported"
+        }.${
           errors.length > 0
             ? ` ${errors.length} rejected row${errors.length === 1 ? "" : "s"} downloaded in the error Excel.`
             : ""
@@ -2533,6 +2579,28 @@ export default function BillingWorkspace({
                   >
                     {catalogExporting ? "Exporting..." : "Export items"}
                   </WorkspaceButton>
+                  <details className="billing-excel-edit-menu">
+                    <summary className="btn btn-secondary">
+                      Edit with Excel
+                    </summary>
+                    <div>
+                      <button
+                        type="button"
+                        disabled={catalogExporting}
+                        onClick={downloadCatalogEditExcel}
+                      >
+                        <b>Download Excel</b>
+                        <span>Get all items ready for editing</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => catalogEditInput.current?.click()}
+                      >
+                        <b>Import edited Excel</b>
+                        <span>Apply bulk changes to existing items</span>
+                      </button>
+                    </div>
+                  </details>
                   <WorkspaceButton
                     onClick={() => {
                       cancelCatalogImport()
@@ -2547,14 +2615,29 @@ export default function BillingWorkspace({
                     className="billing-file-input"
                     type="file"
                     accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                    onChange={selectCatalogImportFile}
+                    onChange={(event) =>
+                      void selectCatalogImportFile(event, "create")
+                    }
+                  />
+                  <input
+                    ref={catalogEditInput}
+                    className="billing-file-input"
+                    type="file"
+                    accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                    onChange={(event) =>
+                      void selectCatalogImportFile(event, "edit")
+                    }
                   />
                 </div>
               </div>
               {catalogImportFileName && (
                 <section className="billing-import-preview">
                   <div>
-                    <span>Excel import ready</span>
+                    <span>
+                      {catalogImportMode === "edit"
+                        ? "Bulk edits ready"
+                        : "Excel import ready"}
+                    </span>
                     <b>{catalogImportFileName}</b>
                     <small>
                       {catalogImportRows.length} valid product
@@ -2604,7 +2687,7 @@ export default function BillingWorkspace({
                       {busy
                         ? catalogImportProgress || "Importing…"
                         : catalogImportRows.length > 0
-                          ? `Import ${catalogImportRows.length} products`
+                          ? `${catalogImportMode === "edit" ? "Update" : "Import"} ${catalogImportRows.length} products`
                           : "Download error Excel"}
                     </WorkspaceButton>
                   </div>

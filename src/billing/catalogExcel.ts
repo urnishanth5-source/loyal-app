@@ -6,6 +6,7 @@ export const MAX_CATALOG_IMPORT_ROWS = 10000
 export type CatalogImportRow = {
   sourceRow: number
   source: Record<string, unknown>
+  itemId?: string
   item: Omit<CatalogItem, "id" | "businessId">
 }
 
@@ -208,6 +209,7 @@ export function catalogRowsFromRecords(
     rows.push({
       sourceRow,
       source,
+      itemId: text(field(record, "Item ID")),
       item: {
         itemType,
         name,
@@ -267,6 +269,7 @@ const downloadWorkbook = async (workbook: Workbook, fileName: string) => {
 export async function parseCatalogWorkbook(
   buffer: ArrayBuffer,
   customFields: string[],
+  requireItemIds = false,
 ) {
   const workbook = new Workbook()
   await workbook.xlsx.load(buffer as never)
@@ -293,7 +296,23 @@ export async function parseCatalogWorkbook(
     throw new Error("The Excel workbook has no product rows.")
   if (records.length > MAX_CATALOG_IMPORT_ROWS)
     throw new Error("Import up to 10,000 products at a time.")
-  return catalogRowsFromRecords(records, customFields)
+  const result = catalogRowsFromRecords(records, customFields)
+  if (!requireItemIds) return result
+  const rows: CatalogImportRow[] = []
+  const errors = [...result.errors]
+  result.rows.forEach((row) => {
+    if (row.itemId) {
+      rows.push(row)
+      return
+    }
+    errors.push({
+      sourceRow: row.sourceRow,
+      source: row.source,
+      error:
+        "Item ID is required. Use the downloaded bulk-edit workbook and do not change the Item ID column.",
+    })
+  })
+  return { rows, errors }
 }
 
 export async function downloadCatalogTemplate(customFields: string[]) {
@@ -390,6 +409,87 @@ export async function downloadCatalogExport(
   })
   const date = new Date().toISOString().slice(0, 10)
   await downloadWorkbook(workbook, `perklyn-catalog-${date}.xlsx`)
+}
+
+export async function downloadCatalogEditWorkbook(
+  items: CatalogItem[],
+  customFields: string[],
+) {
+  const { customFields: exportCustomFields, records } =
+    catalogRecordsForExport(items, customFields)
+  const headers = [
+    "Item ID",
+    ...baseHeaders,
+    ...exportCustomFields.map((field) => `Custom: ${field}`),
+  ]
+  const workbook = new Workbook()
+  const sheet = workbook.addWorksheet("Products", {
+    views: [{ state: "frozen", ySplit: 1, xSplit: 1 }],
+  })
+  sheet.addRow(headers)
+  records.forEach((record, index) =>
+    sheet.addRow([
+      items[index].id,
+      ...headers
+        .slice(1)
+        .map((header) => record[header as keyof typeof record]),
+    ]),
+  )
+  const headerRow = sheet.getRow(1)
+  headerRow.font = { bold: true, color: { argb: "FFFFFFFF" } }
+  headerRow.fill = {
+    type: "pattern",
+    pattern: "solid",
+    fgColor: { argb: "FF20352F" },
+  }
+  headerRow.height = 24
+  sheet.autoFilter = {
+    from: { row: 1, column: 1 },
+    to: { row: 1, column: headers.length },
+  }
+  sheet.columns.forEach((column, index) => {
+    const header = headers[index]
+    column.width =
+      header === "Item ID"
+        ? 38
+        : Math.max(
+            12,
+            Math.min(
+              36,
+              records.reduce(
+                (width, record) =>
+                  Math.max(
+                    width,
+                    String(record[header as keyof typeof record] ?? "").length,
+                  ),
+                header.length,
+              ) + 2,
+            ),
+          )
+    if (
+      header === "Item ID" ||
+      header === "SKU" ||
+      header === "Barcode" ||
+      header === "HSN/SAC"
+    )
+      column.numFmt = "@"
+    if (header === "MRP") column.numFmt = "₹#,##0.00"
+    if (header === "Discount Value") column.numFmt = "#,##0.00"
+  })
+  const instructions = workbook.addWorksheet("Instructions")
+  ;[
+    ["Catalog bulk-edit instructions"],
+    ["Edit values only in the Products sheet, then import this same file."],
+    ["Do not edit, remove, or reuse Item ID values."],
+    ["Deleting a row does not delete that catalog item."],
+    ["Keep the header names unchanged."],
+    ["Maximum rows", "10,000 items per import"],
+  ].forEach((row) => instructions.addRow(row))
+  instructions.getRow(1).font = { bold: true, size: 14 }
+  instructions.getColumn(1).width = 50
+  instructions.getColumn(2).width = 50
+  const date = new Date().toISOString().slice(0, 10)
+  await downloadWorkbook(workbook, `perklyn-catalog-bulk-edit-${date}.xlsx`)
 }
 
 export async function downloadCatalogErrorWorkbook(
