@@ -1529,6 +1529,34 @@ const billingSettingsResponse = (row: any) =>
         creditNotePrefix: row.credit_note_prefix,
         pointsPerRupee: Number(row.points_per_rupee),
         receiptFooter: row.receipt_footer ?? "",
+        barcodeLabel: {
+          sheetWidthMm: Number(row.barcode_label_settings?.sheetWidthMm ?? 100),
+          sheetHeightMm: Number(
+            row.barcode_label_settings?.sheetHeightMm ?? 25,
+          ),
+          stickersPerSheet: Number(
+            row.barcode_label_settings?.stickersPerSheet ?? 2,
+          ),
+          paddingMm: Number(row.barcode_label_settings?.paddingMm ?? 1.5),
+          barcodeHeightMm: Number(
+            row.barcode_label_settings?.barcodeHeightMm ?? 15,
+          ),
+          barcodeModuleWidth: Number(
+            row.barcode_label_settings?.barcodeModuleWidth ?? 1.4,
+          ),
+          textSizePt: Number(row.barcode_label_settings?.textSizePt ?? 8),
+          showBarcodeValue:
+            row.barcode_label_settings?.showBarcodeValue !== false,
+          showName: row.barcode_label_settings?.showName !== false,
+          showPrice: row.barcode_label_settings?.showPrice === true,
+          showSku: row.barcode_label_settings?.showSku === true,
+          showHsn: row.barcode_label_settings?.showHsn === true,
+          showBrand: row.barcode_label_settings?.showBrand === true,
+          showSize: row.barcode_label_settings?.showSize === true,
+          customText: String(
+            row.barcode_label_settings?.customText ?? "",
+          ).slice(0, 80),
+        },
         catalogCustomFields: Array.isArray(row.catalog_custom_fields)
           ? row.catalog_custom_fields
           : [],
@@ -1680,6 +1708,52 @@ app.put(`${prefix}/billing/settings`, async (c) => {
         : [],
     ]),
   )
+  const boundedBarcodeNumber = (
+    value: unknown,
+    fallback: number,
+    minimum: number,
+    maximum: number,
+  ) => Math.min(maximum, Math.max(minimum, Number(value) || fallback))
+  const rawBarcodeLabel = body.barcodeLabel ?? {}
+  const barcodeLabel = {
+    sheetWidthMm: boundedBarcodeNumber(
+      rawBarcodeLabel.sheetWidthMm,
+      100,
+      30,
+      300,
+    ),
+    sheetHeightMm: boundedBarcodeNumber(
+      rawBarcodeLabel.sheetHeightMm,
+      25,
+      15,
+      100,
+    ),
+    stickersPerSheet: Math.round(
+      boundedBarcodeNumber(rawBarcodeLabel.stickersPerSheet, 2, 1, 6),
+    ),
+    paddingMm: boundedBarcodeNumber(rawBarcodeLabel.paddingMm, 1.5, 0, 10),
+    barcodeHeightMm: boundedBarcodeNumber(
+      rawBarcodeLabel.barcodeHeightMm,
+      15,
+      6,
+      80,
+    ),
+    barcodeModuleWidth: boundedBarcodeNumber(
+      rawBarcodeLabel.barcodeModuleWidth,
+      1.4,
+      0.8,
+      3,
+    ),
+    textSizePt: boundedBarcodeNumber(rawBarcodeLabel.textSizePt, 8, 6, 16),
+    showBarcodeValue: rawBarcodeLabel.showBarcodeValue !== false,
+    showName: rawBarcodeLabel.showName !== false,
+    showPrice: rawBarcodeLabel.showPrice === true,
+    showSku: rawBarcodeLabel.showSku === true,
+    showHsn: rawBarcodeLabel.showHsn === true,
+    showBrand: rawBarcodeLabel.showBrand === true,
+    showSize: rawBarcodeLabel.showSize === true,
+    customText: cleanText(rawBarcodeLabel.customText, 80),
+  }
   const row = {
     business_id: businessId,
     owner_user_id: user.id,
@@ -1703,6 +1777,7 @@ app.put(`${prefix}/billing/settings`, async (c) => {
     receipt_footer: String(body.receiptFooter ?? "")
       .trim()
       .slice(0, 500),
+    barcode_label_settings: barcodeLabel,
     catalog_custom_fields: catalogCustomFields,
     catalog_option_values: {
       brands: textOptions("brands"),

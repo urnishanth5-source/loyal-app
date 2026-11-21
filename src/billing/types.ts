@@ -1,5 +1,23 @@
 export type GstRateBps = 0 | 500 | 1200 | 1800 | 2800
 
+export type BarcodeLabelSettings = {
+  sheetWidthMm: number
+  sheetHeightMm: number
+  stickersPerSheet: number
+  paddingMm: number
+  barcodeHeightMm: number
+  barcodeModuleWidth: number
+  textSizePt: number
+  showBarcodeValue: boolean
+  showName: boolean
+  showPrice: boolean
+  showSku: boolean
+  showHsn: boolean
+  showBrand: boolean
+  showSize: boolean
+  customText: string
+}
+
 export type BillingSettings = {
   businessId: number
   legalName: string
@@ -14,6 +32,7 @@ export type BillingSettings = {
   creditNotePrefix: string
   pointsPerRupee: number
   receiptFooter: string
+  barcodeLabel: BarcodeLabelSettings
   catalogCustomFields: string[]
   catalogCustomOptions: Record<string, string[]>
   catalogOptions: {

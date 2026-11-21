@@ -27,6 +27,7 @@ import type {
   CatalogImportRow,
 } from "./billing/catalogExcel"
 import type {
+  BarcodeLabelSettings,
   BillingCustomer,
   BillingInvoiceSummary,
   BillingPayment,
@@ -132,6 +133,24 @@ const createSalesBuckets = (range: SalesRange, now: Date) => {
   })
 }
 
+const defaultBarcodeLabelSettings: BarcodeLabelSettings = {
+  sheetWidthMm: 100,
+  sheetHeightMm: 25,
+  stickersPerSheet: 2,
+  paddingMm: 1.5,
+  barcodeHeightMm: 15,
+  barcodeModuleWidth: 1.4,
+  textSizePt: 8,
+  showBarcodeValue: true,
+  showName: true,
+  showPrice: false,
+  showSku: false,
+  showHsn: false,
+  showBrand: false,
+  showSize: false,
+  customText: "",
+}
+
 const emptySettings = (businessId: number, name: string): BillingSettings => ({
   businessId,
   legalName: name,
@@ -146,6 +165,7 @@ const emptySettings = (businessId: number, name: string): BillingSettings => ({
   creditNotePrefix: "CN",
   pointsPerRupee: 1,
   receiptFooter: "",
+  barcodeLabel: { ...defaultBarcodeLabelSettings },
   catalogCustomFields: [],
   catalogCustomOptions: {},
   catalogOptions: {
@@ -221,6 +241,10 @@ const normalizeBillingSettings = (
   ...fallback,
   ...value,
   receiptFooter: value.receiptFooter ?? fallback.receiptFooter ?? "",
+  barcodeLabel: normalizeBarcodeLabelSettings({
+    ...fallback.barcodeLabel,
+    ...(value.barcodeLabel ?? {}),
+  }),
   catalogCustomFields:
     value.catalogCustomFields ?? fallback.catalogCustomFields ?? [],
   catalogCustomOptions:
@@ -237,6 +261,46 @@ const normalizeBillingSettings = (
       [],
   },
 })
+
+const clampBarcodeSetting = (
+  value: number,
+  minimum: number,
+  maximum: number,
+) => Math.min(maximum, Math.max(minimum, Number(value) || minimum))
+
+const normalizeBarcodeLabelSettings = (
+  value: BarcodeLabelSettings,
+): BarcodeLabelSettings => {
+  const sheetWidthMm = clampBarcodeSetting(value.sheetWidthMm, 30, 300)
+  const sheetHeightMm = clampBarcodeSetting(value.sheetHeightMm, 15, 100)
+  const stickersPerSheet = Math.round(
+    clampBarcodeSetting(value.stickersPerSheet, 1, 6),
+  )
+  const stickerWidthMm = sheetWidthMm / stickersPerSheet
+  return {
+    ...value,
+    sheetWidthMm,
+    sheetHeightMm,
+    stickersPerSheet,
+    paddingMm: clampBarcodeSetting(
+      value.paddingMm,
+      0,
+      Math.min(10, stickerWidthMm / 4),
+    ),
+    barcodeHeightMm: clampBarcodeSetting(
+      value.barcodeHeightMm,
+      6,
+      Math.max(6, sheetHeightMm - 4),
+    ),
+    barcodeModuleWidth: clampBarcodeSetting(
+      value.barcodeModuleWidth,
+      0.8,
+      3,
+    ),
+    textSizePt: clampBarcodeSetting(value.textSizePt, 6, 16),
+    customText: String(value.customText ?? "").trim().slice(0, 80),
+  }
+}
 
 const receiptSellerFromSettings = (
   settings: BillingSettings,
@@ -509,6 +573,9 @@ export default function BillingWorkspace({
   const [settings, setSettings] = useState<BillingSettings | null>(null)
   const [settingsDraft, setSettingsDraft] = useState(() =>
     emptySettings(merchant.id, merchant.name),
+  )
+  const barcodeLabelPreview = normalizeBarcodeLabelSettings(
+    settingsDraft.barcodeLabel,
   )
   const [catalog, setCatalog] = useState<CatalogItem[]>([])
   const catalogImportInput = useRef<HTMLInputElement>(null)
@@ -908,6 +975,12 @@ export default function BillingWorkspace({
       items.map((item) => (item.id === id ? { ...item, ...patch } : item)),
     )
 
+  const updateBarcodeLabel = (patch: Partial<BarcodeLabelSettings>) =>
+    setSettingsDraft((current) => ({
+      ...current,
+      barcodeLabel: { ...current.barcodeLabel, ...patch },
+    }))
+
   const searchCustomers = async () => {
     setBusy(true)
     setMessage("")
@@ -972,15 +1045,24 @@ export default function BillingWorkspace({
     setBusy(true)
     setMessage("")
     try {
+      const barcodeLabel = normalizeBarcodeLabelSettings(
+        settingsDraft.barcodeLabel,
+      )
       const result = await apiRequest<{ settings: BillingSettings }>(
         "/billing/settings",
-        { method: "PUT", body: JSON.stringify(settingsDraft) },
+        {
+          method: "PUT",
+          body: JSON.stringify({ ...settingsDraft, barcodeLabel }),
+        },
       )
       const responseOptions = result.settings.catalogOptions
       const responseCustomOptions = result.settings.catalogCustomOptions ?? {}
       const footerPersisted =
         (result.settings.receiptFooter ?? "") ===
         settingsDraft.receiptFooter.trim()
+      const barcodeSettingsPersisted =
+        JSON.stringify(result.settings.barcodeLabel) ===
+        JSON.stringify(barcodeLabel)
       const optionsPersisted =
         responseOptions &&
         JSON.stringify(responseOptions.brands ?? []) ===
@@ -993,14 +1075,14 @@ export default function BillingWorkspace({
           JSON.stringify(settingsDraft.catalogOptions.categories) &&
         JSON.stringify(responseCustomOptions) ===
           JSON.stringify(settingsDraft.catalogCustomOptions)
-      if (!optionsPersisted || !footerPersisted) {
+      if (!optionsPersisted || !footerPersisted || !barcodeSettingsPersisted) {
         throw new Error(
           "Some billing settings were not saved by the server. Apply the latest Supabase migrations and redeploy the Edge Function, then save again.",
         )
       }
       const savedSettings = normalizeBillingSettings(
         result.settings,
-        settingsDraft,
+        { ...settingsDraft, barcodeLabel },
       )
       setSettings(savedSettings)
       setSettingsDraft(savedSettings)
@@ -1363,14 +1445,18 @@ export default function BillingWorkspace({
 
   const printCatalogBarcode = () => {
     if (!catalogDraft.barcode) return
+    const label = normalizeBarcodeLabelSettings(settingsDraft.barcodeLabel)
+    const { sheetWidthMm, sheetHeightMm, stickersPerSheet } = label
+    const stickerWidthMm = sheetWidthMm / stickersPerSheet
+    const { paddingMm, barcodeHeightMm, barcodeModuleWidth, textSizePt } = label
     const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg")
     try {
       JsBarcode(svg, catalogDraft.barcode, {
         format: "CODE128",
-        displayValue: true,
-        width: 1.4,
-        height: 42,
-        fontSize: 12,
+        displayValue: label.showBarcodeValue,
+        width: barcodeModuleWidth,
+        height: Math.round(barcodeHeightMm * 3.78),
+        fontSize: Math.max(9, Math.round(textSizePt * 1.25)),
         textMargin: 1,
         margin: 0,
       })
@@ -1386,10 +1472,36 @@ export default function BillingWorkspace({
       .replaceAll(">", "&gt;")
       .replaceAll('"', "&quot;")
       .replaceAll("'", "&#039;")
+    const escapeLabelText = (value: unknown) =>
+      String(value ?? "")
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;")
+        .replaceAll('"', "&quot;")
+        .replaceAll("'", "&#039;")
+    const details = [
+      label.customText.trim(),
+      label.showBrand && catalogDraft.brand
+        ? `Brand: ${catalogDraft.brand}`
+        : "",
+      label.showSize && catalogDraft.size ? `Size: ${catalogDraft.size}` : "",
+      label.showSku && catalogDraft.sku ? `SKU: ${catalogDraft.sku}` : "",
+      label.showHsn && catalogDraft.hsnSac
+        ? `HSN/SAC: ${catalogDraft.hsnSac}`
+        : "",
+      label.showPrice ? `Price: ${formatInr(catalogDraft.pricePaise)}` : "",
+    ].filter(Boolean)
     const sticker = `
       <section class="sticker">
-        <b>${safeName}</b>
+        ${label.showName ? `<b>${safeName}</b>` : ""}
         ${svg.outerHTML}
+        ${
+          details.length
+            ? `<div class="details">${details
+                .map((detail) => `<span>${escapeLabelText(detail)}</span>`)
+                .join("")}</div>`
+            : ""
+        }
       </section>`
     popup.document.write(`
       <!doctype html>
@@ -1398,11 +1510,11 @@ export default function BillingWorkspace({
           <meta charset="utf-8">
           <title>${safeName}</title>
           <style>
-            @page { size: 100mm 25mm; margin: 0; }
+            @page { size: ${sheetWidthMm}mm ${sheetHeightMm}mm; margin: 0; }
             * { box-sizing: border-box; }
             html, body {
-              width: 100mm;
-              height: 25mm;
+              width: ${sheetWidthMm}mm;
+              height: ${sheetHeightMm}mm;
               margin: 0;
               padding: 0;
               overflow: hidden;
@@ -1416,40 +1528,59 @@ export default function BillingWorkspace({
             }
             .sheet {
               display: grid;
-              width: 100mm;
-              height: 25mm;
-              grid-template-columns: 50mm 50mm;
+              width: ${sheetWidthMm}mm;
+              height: ${sheetHeightMm}mm;
+              grid-template-columns: repeat(${stickersPerSheet}, ${stickerWidthMm}mm);
             }
             .sticker {
-              display: grid;
-              width: 50mm;
-              height: 25mm;
-              grid-template-rows: 4mm minmax(0, 1fr);
+              display: flex;
+              width: ${stickerWidthMm}mm;
+              height: ${sheetHeightMm}mm;
+              flex-direction: column;
               place-items: center;
+              align-items: center;
+              justify-content: center;
+              gap: .35mm;
               overflow: hidden;
-              padding: 1.5mm 2mm 1mm;
+              padding: ${paddingMm}mm;
               text-align: center;
             }
             b {
               display: block;
               width: 100%;
               overflow: hidden;
-              font-size: 8pt;
-              line-height: 3.5mm;
+              font-size: ${textSizePt}pt;
+              line-height: 1.1;
               text-overflow: ellipsis;
               white-space: nowrap;
             }
             svg {
               display: block;
               width: auto;
-              max-width: 46mm;
-              height: 17mm;
-              max-height: 17mm;
+              max-width: ${Math.max(5, stickerWidthMm - paddingMm * 2)}mm;
+              height: ${barcodeHeightMm}mm;
+              max-height: ${barcodeHeightMm}mm;
+              flex: 0 1 auto;
+            }
+            .details {
+              display: flex;
+              width: 100%;
+              align-items: center;
+              justify-content: center;
+              gap: 1.2mm;
+              overflow: hidden;
+              font-size: ${Math.max(5, textSizePt - 1)}pt;
+              line-height: 1.1;
+              white-space: nowrap;
+            }
+            .details span {
+              overflow: hidden;
+              text-overflow: ellipsis;
             }
           </style>
         </head>
         <body>
-          <main class="sheet">${sticker}${sticker}</main>
+          <main class="sheet">${Array.from({ length: stickersPerSheet }, () => sticker).join("")}</main>
         </body>
       </html>`)
     popup.document.close()
@@ -4026,6 +4157,173 @@ export default function BillingWorkspace({
                 {settingsDraft.receiptFooter.length}/500 characters
               </small>
             </label>
+            <section className="billing-barcode-settings">
+              <div className="billing-barcode-settings-head">
+                <div>
+                  <b>Barcode sticker layout</b>
+                  <span>
+                    Choose the product details to print and size the sheet for
+                    your label roll.
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() =>
+                    updateBarcodeLabel({ ...defaultBarcodeLabelSettings })
+                  }
+                >
+                  Reset to 10 × 2.5 cm
+                </button>
+              </div>
+              <div className="billing-barcode-settings-layout">
+                <div className="billing-barcode-preview-setting">
+                  <small>Live label preview</small>
+                  <div
+                    className="billing-label-preview-sheet"
+                    style={{
+                      aspectRatio: `${barcodeLabelPreview.sheetWidthMm} / ${barcodeLabelPreview.sheetHeightMm}`,
+                      gridTemplateColumns: `repeat(${barcodeLabelPreview.stickersPerSheet}, minmax(0, 1fr))`,
+                    }}
+                  >
+                    {Array.from({
+                      length: barcodeLabelPreview.stickersPerSheet,
+                    }).map((_, index) => (
+                      <div className="billing-label-preview" key={index}>
+                        {barcodeLabelPreview.showName && (
+                          <b>Sample product</b>
+                        )}
+                        <span className="billing-label-preview-bars" />
+                        {barcodeLabelPreview.showBarcodeValue && (
+                          <em>8901234567890</em>
+                        )}
+                        <small>
+                          {[
+                            barcodeLabelPreview.customText,
+                            barcodeLabelPreview.showBrand
+                              ? "Brand: Perklyn"
+                              : "",
+                            barcodeLabelPreview.showSize
+                              ? "Size: M"
+                              : "",
+                            barcodeLabelPreview.showSku
+                              ? "SKU: SAMPLE-01"
+                              : "",
+                            barcodeLabelPreview.showHsn
+                              ? "HSN: 6109"
+                              : "",
+                            barcodeLabelPreview.showPrice ? "₹499.00" : "",
+                          ]
+                            .filter(Boolean)
+                            .join(" · ")}
+                        </small>
+                      </div>
+                    ))}
+                  </div>
+                  <span>
+                    {barcodeLabelPreview.sheetWidthMm} ×{" "}
+                    {barcodeLabelPreview.sheetHeightMm} mm sheet ·{" "}
+                    {barcodeLabelPreview.stickersPerSheet} sticker
+                    {barcodeLabelPreview.stickersPerSheet === 1 ? "" : "s"}
+                  </span>
+                </div>
+                <div className="billing-barcode-controls">
+                  <div className="billing-barcode-size-grid">
+                    {(
+                      [
+                        ["Sheet width", "sheetWidthMm", 30, 300, 1, "mm"],
+                        ["Sheet height", "sheetHeightMm", 15, 100, 1, "mm"],
+                        [
+                          "Stickers per sheet",
+                          "stickersPerSheet",
+                          1,
+                          6,
+                          1,
+                          "",
+                        ],
+                        ["Inner padding", "paddingMm", 0, 10, 0.5, "mm"],
+                        [
+                          "Barcode height",
+                          "barcodeHeightMm",
+                          6,
+                          80,
+                          0.5,
+                          "mm",
+                        ],
+                        [
+                          "Barcode thickness",
+                          "barcodeModuleWidth",
+                          0.8,
+                          3,
+                          0.1,
+                          "",
+                        ],
+                        ["Text size", "textSizePt", 6, 16, 0.5, "pt"],
+                      ] as const
+                    ).map(([label, field, min, max, step, suffix]) => (
+                      <label key={field}>
+                        {label}
+                        <span>
+                          <input
+                            className="field"
+                            type="number"
+                            min={min}
+                            max={max}
+                            step={step}
+                            value={settingsDraft.barcodeLabel[field]}
+                            onChange={(event) =>
+                              updateBarcodeLabel({
+                                [field]: Number(event.target.value),
+                              })
+                            }
+                          />
+                          {suffix && <small>{suffix}</small>}
+                        </span>
+                      </label>
+                    ))}
+                  </div>
+                  <div className="billing-barcode-detail-toggles">
+                    {(
+                      [
+                        ["Product name", "showName"],
+                        ["Barcode number", "showBarcodeValue"],
+                        ["Selling price", "showPrice"],
+                        ["SKU", "showSku"],
+                        ["HSN/SAC", "showHsn"],
+                        ["Brand", "showBrand"],
+                        ["Size", "showSize"],
+                      ] as const
+                    ).map(([label, field]) => (
+                      <label key={field}>
+                        <input
+                          type="checkbox"
+                          checked={settingsDraft.barcodeLabel[field]}
+                          onChange={(event) =>
+                            updateBarcodeLabel({
+                              [field]: event.target.checked,
+                            })
+                          }
+                        />
+                        <span>{label}</span>
+                      </label>
+                    ))}
+                  </div>
+                  <label className="billing-barcode-custom-text">
+                    Custom label text
+                    <input
+                      className="field"
+                      maxLength={80}
+                      value={settingsDraft.barcodeLabel.customText}
+                      onChange={(event) =>
+                        updateBarcodeLabel({
+                          customText: event.target.value,
+                        })
+                      }
+                      placeholder="Example: Special price or store name"
+                    />
+                  </label>
+                </div>
+              </div>
+            </section>
             <section className="billing-custom-settings">
               <div>
                 <b>Catalog click options</b>
