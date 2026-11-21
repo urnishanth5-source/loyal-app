@@ -6558,6 +6558,73 @@ body::-webkit-scrollbar {
   text-align: left;
 }
 
+.billing-selected-customer {
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: .75rem;
+  padding: .9rem;
+  border-color: rgb(255 146 207 / 36%);
+  background:
+    radial-gradient(circle at 0 0, rgb(182 44 255 / 18%), transparent 55%),
+    rgb(255 255 255 / 8%);
+}
+
+.billing-selected-customer > i {
+  display: grid;
+  width: 2.7rem;
+  height: 2.7rem;
+  place-items: center;
+  border-radius: 50%;
+  color: #321047;
+  background: linear-gradient(145deg, #f0cf69, #ff8acb);
+  font-size: .9rem;
+  font-style: normal;
+  font-weight: 900;
+}
+
+.billing-selected-customer > div {
+  display: grid;
+  min-width: 0;
+  gap: .12rem;
+}
+
+.billing-selected-customer small {
+  color: #ff92cf;
+  font-size: .58rem;
+  font-weight: 900;
+  letter-spacing: .09em;
+  text-transform: uppercase;
+}
+
+.billing-selected-customer b {
+  color: white;
+  font-size: .88rem;
+}
+
+.billing-selected-customer em {
+  color: #f0cf69;
+  font-size: .63rem;
+  font-style: normal;
+  font-weight: 800;
+}
+
+.billing-selected-customer > button {
+  padding: .55rem .72rem;
+  border: 1px solid rgb(255 146 207 / 35%);
+  border-radius: .65rem;
+  color: #ffd7ec;
+  background: rgb(255 79 163 / 11%);
+  font-size: .65rem;
+  font-weight: 900;
+  transition: .2s ease;
+}
+
+.billing-selected-customer > button:hover {
+  color: white;
+  border-color: rgb(255 146 207 / 70%);
+  background: rgb(255 79 163 / 24%);
+}
+
 .billing-add-customer {
   display: grid;
   grid-column: 1 / -1;
@@ -7521,6 +7588,15 @@ body::-webkit-scrollbar {
   .billing-customer-search,
   .billing-add-customer {
     grid-template-columns: 1fr;
+  }
+
+  .billing-selected-customer {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .billing-selected-customer > button {
+    grid-column: 1 / -1;
+    width: 100%;
   }
 
   .billing-add-customer > b {

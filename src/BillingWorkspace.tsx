@@ -578,6 +578,9 @@ export default function BillingWorkspace({
   const [customerQuery, setCustomerQuery] = useState("")
   const [customers, setCustomers] = useState<BillingCustomer[]>([])
   const [customer, setCustomer] = useState<BillingCustomer | null>(null)
+  const [customerSelectionSource, setCustomerSelectionSource] = useState<
+    "added" | "selected" | null
+  >(null)
   const [showAddCustomer, setShowAddCustomer] = useState(false)
   const [newCustomerName, setNewCustomerName] = useState("")
   const [newCustomerCountry, setNewCustomerCountry] = useState("India")
@@ -947,6 +950,7 @@ export default function BillingWorkspace({
         },
       )
       setCustomer(result.customer)
+      setCustomerSelectionSource("added")
       setCustomers([])
       setCustomerQuery("")
       setShowAddCustomer(false)
@@ -1364,8 +1368,11 @@ export default function BillingWorkspace({
       JsBarcode(svg, catalogDraft.barcode, {
         format: "CODE128",
         displayValue: true,
-        height: 70,
-        margin: 8,
+        width: 1.4,
+        height: 42,
+        fontSize: 12,
+        textMargin: 1,
+        margin: 0,
       })
     } catch {
       setMessage("Enter a valid barcode before printing.")
@@ -1379,10 +1386,72 @@ export default function BillingWorkspace({
       .replaceAll(">", "&gt;")
       .replaceAll('"', "&quot;")
       .replaceAll("'", "&#039;")
+    const sticker = `
+      <section class="sticker">
+        <b>${safeName}</b>
+        ${svg.outerHTML}
+      </section>`
     popup.document.write(`
-      <html><head><title>${safeName}</title>
-      <style>@page{size:60mm 35mm;margin:2mm}body{display:grid;place-items:center;margin:0;font:12px sans-serif;text-align:center}b{display:block;margin-bottom:4px}svg{max-width:56mm}</style>
-      </head><body><div><b>${safeName}</b>${svg.outerHTML}</div></body></html>`)
+      <!doctype html>
+      <html>
+        <head>
+          <meta charset="utf-8">
+          <title>${safeName}</title>
+          <style>
+            @page { size: 100mm 25mm; margin: 0; }
+            * { box-sizing: border-box; }
+            html, body {
+              width: 100mm;
+              height: 25mm;
+              margin: 0;
+              padding: 0;
+              overflow: hidden;
+              background: #fff;
+            }
+            body {
+              color: #000;
+              font-family: Arial, Helvetica, sans-serif;
+              print-color-adjust: exact;
+              -webkit-print-color-adjust: exact;
+            }
+            .sheet {
+              display: grid;
+              width: 100mm;
+              height: 25mm;
+              grid-template-columns: 50mm 50mm;
+            }
+            .sticker {
+              display: grid;
+              width: 50mm;
+              height: 25mm;
+              grid-template-rows: 4mm minmax(0, 1fr);
+              place-items: center;
+              overflow: hidden;
+              padding: 1.5mm 2mm 1mm;
+              text-align: center;
+            }
+            b {
+              display: block;
+              width: 100%;
+              overflow: hidden;
+              font-size: 8pt;
+              line-height: 3.5mm;
+              text-overflow: ellipsis;
+              white-space: nowrap;
+            }
+            svg {
+              display: block;
+              width: auto;
+              max-width: 46mm;
+              height: 17mm;
+              max-height: 17mm;
+            }
+          </style>
+        </head>
+        <body>
+          <main class="sheet">${sticker}${sticker}</main>
+        </body>
+      </html>`)
     popup.document.close()
     popup.focus()
     popup.print()
@@ -1458,6 +1527,7 @@ export default function BillingWorkspace({
     setCartDiscount("")
     setCartDiscountPercent("")
     setCustomer(null)
+    setCustomerSelectionSource(null)
     setCustomerQuery("")
     setCustomers([])
     setPayments([{ id: crypto.randomUUID(), mode: "cash", amountPaise: 0 }])
@@ -1890,99 +1960,141 @@ export default function BillingWorkspace({
                     </WorkspaceButton>
                   </div>
                   <div className="billing-customer-search">
-                    <input
-                      className="field"
-                      value={customerQuery}
-                      onChange={(event) => setCustomerQuery(event.target.value)}
-                      onKeyDown={(event) => {
-                        if (event.key === "Enter") searchCustomers()
-                      }}
-                      placeholder="Optional loyalty customer"
-                    />
-                    <WorkspaceButton secondary onClick={searchCustomers}>
-                      {busy ? "Searching…" : "Search"}
-                    </WorkspaceButton>
-                    <WorkspaceButton
-                      secondary
-                      onClick={() => setShowAddCustomer((shown) => !shown)}
-                    >
-                      + Add customer
-                    </WorkspaceButton>
-                    {showAddCustomer && (
-                      <form
-                        className="billing-add-customer"
-                        onSubmit={addCheckoutCustomer}
+                    {customer && (
+                      <div
+                        className="billing-selected-customer"
                       >
-                        <b>Add loyalty customer</b>
+                        <i aria-hidden="true">
+                          {customer.name.trim().charAt(0).toUpperCase() || "C"}
+                        </i>
+                        <div>
+                          <small>
+                            {customerSelectionSource === "added"
+                              ? "Added customer"
+                              : "Selected customer"}
+                          </small>
+                          <b>{customer.name}</b>
+                          <span>
+                            {customer.maskedPhone} · {customer.points} current
+                            points
+                          </span>
+                          <em>
+                            This bill will add {projectedPoints} loyalty points
+                          </em>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const removedName = customer.name
+                            setCustomer(null)
+                            setCustomerSelectionSource(null)
+                            setCustomerQuery("")
+                            setCustomers([])
+                            setMessage(
+                              `${removedName} removed from the current bill.`,
+                            )
+                          }}
+                        >
+                          Remove
+                        </button>
+                      </div>
+                    )}
+                    {!customer && (
+                      <>
                         <input
                           className="field"
-                          required
-                          value={newCustomerName}
+                          value={customerQuery}
                           onChange={(event) =>
-                            setNewCustomerName(event.target.value)
+                            setCustomerQuery(event.target.value)
                           }
-                          placeholder="Customer name"
+                          onKeyDown={(event) => {
+                            if (event.key === "Enter") searchCustomers()
+                          }}
+                          placeholder="Optional loyalty customer"
                         />
-                        <div className="billing-phone-field">
-                          <select
-                            aria-label="Customer country calling code"
-                            value={newCustomerCountry}
-                            onChange={(event) =>
-                              setNewCustomerCountry(event.target.value)
-                            }
-                          >
-                            {countryCallingCodes.map((option) => (
-                              <option
-                                key={`${option.country}-${option.dial}`}
-                                value={option.country}
-                              >
-                                {option.country} ({option.dial})
-                              </option>
-                            ))}
-                          </select>
-                          <span>
-                            {countryCallingCodes.find(
-                              (option) => option.country === newCustomerCountry,
-                            )?.dial ?? ""}
-                          </span>
-                          <input
-                            required
-                            type="tel"
-                            inputMode="tel"
-                            value={newCustomerLocalPhone}
-                            onChange={(event) =>
-                              setNewCustomerLocalPhone(
-                                event.target.value.replace(/[^\d\s()-]/g, ""),
-                              )
-                            }
-                            placeholder="Phone number"
-                          />
-                        </div>
-                        <WorkspaceButton type="submit" disabled={busy}>
-                          {busy ? "Adding…" : "Add and select"}
+                        <WorkspaceButton secondary onClick={searchCustomers}>
+                          {busy ? "Searching…" : "Search"}
                         </WorkspaceButton>
-                      </form>
-                    )}
-                    {customer && (
-                      <button
-                        className="billing-selected-customer"
-                        onClick={() => setCustomer(null)}
-                      >
-                        <b>{customer.name}</b>
-                        <span>
-                          {customer.maskedPhone} · {customer.points} points ·
-                          earns {projectedPoints}
-                        </span>
-                      </button>
-                    )}
-                    {!customer &&
-                      customers.map((item) => (
+                        <WorkspaceButton
+                          secondary
+                          onClick={() =>
+                            setShowAddCustomer((shown) => !shown)
+                          }
+                        >
+                          + Add customer
+                        </WorkspaceButton>
+                        {showAddCustomer && (
+                          <form
+                            className="billing-add-customer"
+                            onSubmit={addCheckoutCustomer}
+                          >
+                            <b>Add loyalty customer</b>
+                            <input
+                              className="field"
+                              required
+                              value={newCustomerName}
+                              onChange={(event) =>
+                                setNewCustomerName(event.target.value)
+                              }
+                              placeholder="Customer name"
+                            />
+                            <div className="billing-phone-field">
+                              <select
+                                aria-label="Customer country calling code"
+                                value={newCustomerCountry}
+                                onChange={(event) =>
+                                  setNewCustomerCountry(event.target.value)
+                                }
+                              >
+                                {countryCallingCodes.map((option) => (
+                                  <option
+                                    key={`${option.country}-${option.dial}`}
+                                    value={option.country}
+                                  >
+                                    {option.country} ({option.dial})
+                                  </option>
+                                ))}
+                              </select>
+                              <span>
+                                {countryCallingCodes.find(
+                                  (option) =>
+                                    option.country === newCustomerCountry,
+                                )?.dial ?? ""}
+                              </span>
+                              <input
+                                required
+                                type="tel"
+                                inputMode="tel"
+                                value={newCustomerLocalPhone}
+                                onChange={(event) =>
+                                  setNewCustomerLocalPhone(
+                                    event.target.value.replace(
+                                      /[^\d\s()-]/g,
+                                      "",
+                                    ),
+                                  )
+                                }
+                                placeholder="Phone number"
+                              />
+                            </div>
+                            <WorkspaceButton type="submit" disabled={busy}>
+                              {busy ? "Adding…" : "Add and select"}
+                            </WorkspaceButton>
+                          </form>
+                        )}
+                        {customers.map((item) => (
                         <button
                           className="billing-customer-result"
                           key={item.id}
                           onClick={() => {
                             setCustomer(item)
+                            setCustomerSelectionSource("selected")
                             setCustomers([])
+                            setCustomerQuery("")
+                            setShowAddCustomer(false)
+                            setMessage(
+                              `${item.name} selected for the current bill.`,
+                            )
                           }}
                         >
                           <b>{item.name}</b>
@@ -1990,7 +2102,9 @@ export default function BillingWorkspace({
                             {item.maskedPhone} · {item.points} points
                           </span>
                         </button>
-                      ))}
+                        ))}
+                      </>
+                    )}
                   </div>
                 </section>
                 <section className="billing-panel billing-cart">
