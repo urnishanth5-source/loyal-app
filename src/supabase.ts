@@ -21,6 +21,27 @@ export const supabase = globalSupabase.loyaltyHubSupabase ?? createClient(
 globalSupabase.loyaltyHubSupabase = supabase;
 
 const apiBase = `https://${projectId}.supabase.co/functions/v1/make-server-3a123995`;
+const deviceStorageKey = "perklyn-device-id";
+let fallbackDeviceId = crypto.randomUUID();
+
+const deviceId = () => {
+  try {
+    const stored = window.localStorage.getItem(deviceStorageKey);
+    if (
+      stored &&
+      /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+        stored,
+      )
+    )
+      return stored;
+    const created = crypto.randomUUID();
+    window.localStorage.setItem(deviceStorageKey, created);
+    fallbackDeviceId = created;
+    return created;
+  } catch {
+    return fallbackDeviceId;
+  }
+};
 
 export async function apiRequest<T>(path: string, options: RequestInit = {}): Promise<T> {
   const { data } = await supabase.auth.getSession();
@@ -31,6 +52,7 @@ export async function apiRequest<T>(path: string, options: RequestInit = {}): Pr
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${data.session?.access_token ?? publicAnonKey}`,
+        "X-Device-Id": deviceId(),
         ...(options.headers ?? {}),
       },
     });

@@ -613,12 +613,25 @@ const requestIdentifier = (c: any) =>
       "unknown",
     80,
   )
+const deviceIdentifier = (c: any) => {
+  const value = cleanText(c.req.header("x-device-id"), 64).toLowerCase()
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(
+    value,
+  )
+    ? value
+    : ""
+}
 
 app.use(
   "/*",
   cors({
     origin: (origin) => (isAllowedOrigin(origin) ? origin : undefined),
-    allowHeaders: ["Content-Type", "Authorization", "X-Admin-Token"],
+    allowHeaders: [
+      "Content-Type",
+      "Authorization",
+      "X-Admin-Token",
+      "X-Device-Id",
+    ],
     allowMethods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     maxAge: 600,
   }),
@@ -775,6 +788,42 @@ app.get(`${prefix}/admin/businesses`, async (c) => {
   return c.json({ businesses })
 })
 
+app.get(`${prefix}/admin/customers`, async (c) => {
+  const session = await authenticatedAdmin(c)
+  if (!session) return c.json({ error: "Admin session expired." }, 401)
+  if (!(await checkRateLimit("admin-api", session.tokenHash, 120, 60 * 1000)))
+    return c.json({ error: "Too many admin requests. Try again shortly." }, 429)
+  const now = Date.now()
+  const customers = (await kv.getByPrefix("profile:"))
+    .filter((profile: any) => profile?.role === "customer")
+    .map((profile: any) => {
+      const createdAt = String(profile.createdAt ?? "")
+      const lastLoginAt = String(profile.lastLoginAt ?? "")
+      const activityAt = lastLoginAt || createdAt
+      const activityTime = new Date(activityAt).getTime()
+      const inactiveDays = Number.isFinite(activityTime)
+        ? Math.max(0, Math.floor((now - activityTime) / (24 * 60 * 60 * 1000)))
+        : 0
+      return {
+        id: String(profile.id ?? ""),
+        name: String(profile.name ?? "Unnamed customer"),
+        phone: String(profile.phone ?? ""),
+        email: String(profile.email ?? ""),
+        createdAt: createdAt || null,
+        lastLoginAt: lastLoginAt || null,
+        inactiveDays,
+      }
+    })
+  customers.sort(
+    (left: any, right: any) =>
+      right.inactiveDays - left.inactiveDays ||
+      String(right.createdAt ?? "").localeCompare(
+        String(left.createdAt ?? ""),
+      ),
+  )
+  return c.json({ customers })
+})
+
 app.put(`${prefix}/admin/businesses/:id/status`, async (c) => {
   const session = await authenticatedAdmin(c)
   if (!session) return c.json({ error: "Admin session expired." }, 401)
@@ -828,6 +877,35 @@ app.post(`${prefix}/signup`, async (c) => {
       !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)
     )
       return c.json({ error: "Enter a valid recovery email address." }, 400)
+    const deviceId = deviceIdentifier(c)
+    if (!deviceId)
+      return c.json(
+        {
+          error:
+            "This device could not be verified. Refresh the app and try again.",
+        },
+        400,
+      )
+    const deviceSignupKey = `signup-device:${await hashText(deviceId)}`
+    const storedDeviceSignups = await kv.get(deviceSignupKey)
+    const deviceAccountIds = Array.from(
+      new Set(
+        (Array.isArray(storedDeviceSignups?.accountIds)
+          ? storedDeviceSignups.accountIds
+          : []
+        )
+          .map((value: unknown) => cleanText(value, 80))
+          .filter(Boolean),
+      ),
+    )
+    if (deviceAccountIds.length >= 5)
+      return c.json(
+        {
+          error:
+            "This device has reached the limit of 5 new accounts. Sign in to an existing account.",
+        },
+        429,
+      )
     if (
       !(await checkRateLimit(
         "signup",
@@ -899,8 +977,20 @@ app.post(`${prefix}/signup`, async (c) => {
       createdAt: new Date().toISOString(),
     }
     await kv.mset(
-      [`profile:${data.user.id}`, `login:${cleanRole}:${normalizedPhone}`],
-      [profile, { email: normalizedEmail, userId: data.user.id }],
+      [
+        `profile:${data.user.id}`,
+        `login:${cleanRole}:${normalizedPhone}`,
+        deviceSignupKey,
+      ],
+      [
+        profile,
+        { email: normalizedEmail, userId: data.user.id },
+        {
+          accountIds: [...deviceAccountIds, data.user.id],
+          count: deviceAccountIds.length + 1,
+          updatedAt: new Date().toISOString(),
+        },
+      ],
     )
     return c.json({ profile })
   } catch {
@@ -935,6 +1025,25 @@ app.post(`${prefix}/login`, async (c) => {
   }
   if (error || !data.session)
     return c.json({ error: "The phone number or password is incorrect." }, 401)
+  if (role === "customer" && data.user) {
+    const storedProfile = await kv.get(`profile:${data.user.id}`)
+    const actualRole =
+      storedProfile?.role ?? data.user.user_metadata?.role ?? role
+    if (actualRole === "customer") {
+      const customerProfile = {
+        ...(data.user.user_metadata ?? {}),
+        ...(storedProfile ?? {}),
+        id: data.user.id,
+        role: "customer",
+        createdAt:
+          storedProfile?.createdAt ??
+          data.user.user_metadata?.createdAt ??
+          data.user.created_at,
+        lastLoginAt: new Date().toISOString(),
+      }
+      await kv.set(`profile:${data.user.id}`, customerProfile)
+    }
+  }
   if (!login && data.user) {
     await kv.set(`login:${role}:${phone}`, {
       email: data.user.email,
